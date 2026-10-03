@@ -1,0 +1,16 @@
+{
+  "name": "gosfc-example-astro",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "astro dev",
+    "build": "astro build",
+    "preview": "astro preview"
+  },
+  "dependencies": {
+    "@astrojs/vue": "^7.0.3",
+    "@gosfc/astro": "workspace:*",
+    "astro": "^7.3.5",
+    "vue": "^3.5.43"
+  }
+}
