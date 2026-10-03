@@ -92,4 +92,4 @@ cd examples/astro && pnpm dev
 
 ## Contributing / ライセンス
 
-contribution の方法と設計原則は [CONTRIBUTING.md](CONTRIBUTING.md) を見てください。gosfc は [MIT License](LICENSE) で公開されています。
+contribution の方法と設計原則は [CONTRIBUTING.md](CONTRIBUTING.md) を見てください。gosfc は [BSD 3-Clause License](LICENSE) で公開されています。
