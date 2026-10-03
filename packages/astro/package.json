@@ -1,0 +1,17 @@
+{
+  "name": "@gosfc/astro",
+  "version": "0.0.0",
+  "description": "Astro integration for gosfc: @astrojs/vue plus @gosfc/vite",
+  "type": "module",
+  "exports": {
+    ".": "./src/index.js"
+  },
+  "files": ["src"],
+  "dependencies": {
+    "@gosfc/vite": "workspace:*"
+  },
+  "peerDependencies": {
+    "@astrojs/vue": "^7.0.0",
+    "astro": "^7.0.0"
+  }
+}
