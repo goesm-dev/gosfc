@@ -2,7 +2,7 @@
   "name": "@gosfc/astro",
   "version": "0.0.0",
   "description": "Astro integration for gosfc: @astrojs/vue plus @gosfc/vite",
-  "license": "MIT",
+  "license": "BSD-3-Clause",
   "type": "module",
   "exports": {
     ".": "./src/index.js"

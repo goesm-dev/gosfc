@@ -81,4 +81,4 @@ pnpm dev
 
 ## ライセンス
 
-gosfc は [MIT License](LICENSE) で公開されています。contribution は同じ MIT License の下で提供されたものとして扱います。
+gosfc は [BSD 3-Clause License](LICENSE) で公開されています。contribution は同じ BSD 3-Clause License の下で提供されたものとして扱います。
