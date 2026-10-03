@@ -6,8 +6,9 @@
 // diagnostics, back:
 //
 //   goesm emit-ts -overlay <overlay.json> -o <dir> <package pattern>
-//     -> <dir>/go/<import path>.ts (+ .ts.map)  one module per Go package
-//     -> <dir>/@goesm/runtime/src/*.ts           the goesm runtime
+//     -> <dir>/<import path>.ts (+ .ts.map)     one module per Go package
+//     -> <dir>/@goesm/runtime/*.ts               the goesm runtime
+//     modules import each other and the runtime with relative "./x.ts" specifiers
 //     -> exit 1 and "<file>:<line>:<col>: <message> [<layer>]" on stderr
 //
 // Parsing, type checking, module and package resolution and lowering all
@@ -56,18 +57,17 @@ export async function emitTS(opts) {
       return { ok: false, diagnostics: parseDiagnostics(r.stderr) };
     }
 
-    const goDir = path.join(outDir, "go");
     /** @type {GoModuleOutput[]} */
     const modules = [];
     for (const line of r.stdout.split("\n")) {
       const tsFile = line.trim();
       if (!tsFile.endsWith(".ts")) continue;
-      const importPath = path.relative(goDir, tsFile).split(path.sep).join("/").replace(/\.ts$/, "");
+      const importPath = path.relative(outDir, tsFile).split(path.sep).join("/").replace(/\.ts$/, "");
       const code = stripSourceMapComment(await readFile(tsFile, "utf8"));
       const map = JSON.parse(await readFile(tsFile + ".map", "utf8"));
       modules.push({ importPath, code, map });
     }
-    const runtimeDir = path.join(outDir, "@goesm", "runtime", "src");
+    const runtimeDir = path.join(outDir, "@goesm", "runtime");
     /** @type {RuntimeFile[]} */
     const runtime = [];
     for (const file of await readdir(runtimeDir)) {
