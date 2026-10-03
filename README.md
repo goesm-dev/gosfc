@@ -78,9 +78,10 @@ export default { plugins: [gosfc(), vue()] };
 
 ## 開発
 
-前提：Go（go.mod が選ぶ toolchain を自動取得）、Node.js 22、pnpm。goesm は private repository なので `GOPRIVATE=github.com/goesm-dev` と GitHub の認証が必要です。
+Go、Node.js、pnpm は [mise](https://mise.jdx.dev/) で `mise.toml` のバージョンに揃えます。goesm は private repository なので GitHub の認証が必要です（`GOPRIVATE` は `mise.toml` が設定します）。
 
 ```sh
+mise install
 pnpm install
 pnpm test                      # go test ./... と tests/*.test.mjs
 cd examples/astro && pnpm build   # dist/index.html に「合計: 200」
