@@ -1,7 +1,7 @@
 {
   "name": "gosfc-monorepo",
   "private": true,
-  "license": "BSD-3-Clause",
+  "license": "MIT",
   "type": "module",
   "scripts": {
     "test": "go test ./... && node --test --test-concurrency=1 tests/*.test.mjs"
