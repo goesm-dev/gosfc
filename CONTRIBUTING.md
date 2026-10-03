@@ -43,19 +43,22 @@ gosfc の目的は「Go 風のフロントエンド言語を作ること」で�
 
 ## 開発環境
 
-* Go：gosfc 自体は Go 1.24 以上。example と test fixture は Go 1.27 を要求するので、`GOTOOLCHAIN=auto`（既定）で toolchain が自動取得されます。
-* Node.js 22 と pnpm 10
-* goesm は private repository です。取得には GitHub の認証と `GOPRIVATE=github.com/goesm-dev` が必要です（proxy.golang.org からは取得できません）。
+開発ツールは [mise](https://mise.jdx.dev/) で揃えます。Go、Node.js、pnpm のバージョンは `mise.toml` で pin しています。
 
 ```sh
-export GOPRIVATE=github.com/goesm-dev
+mise install
 pnpm install
 ```
+
+* `mise.toml` は `GOPRIVATE=github.com/goesm-dev` も設定します。goesm は private repository なので、取得には GitHub の認証も必要です（proxy.golang.org からは取得できません）。
+* ツールを最新に上げるときは `mise upgrade -b` を実行し、`pnpm test` が通ることを確認してから更新後の `mise.toml` を commit してください。
+* pnpm のバージョンは `mise.toml` だけで管理します。`package.json` に `packageManager` は書きません。
+* build script を実行してよい依存は `pnpm-workspace.yaml` の `allowBuilds` に列挙しています。
 
 ## テスト
 
 ```sh
-GOPRIVATE=github.com/goesm-dev pnpm test
+pnpm test
 ```
 
 `go test ./...`（`internal/synth` など）と `tests/*.test.mjs`（Astro build、Vite build / SSR / HMR、診断）が走ります。ブラウザでの HMR テストは `/opt/pw-browsers/chromium` または `CHROMIUM` 環境変数の Chromium を使い、見つからなければ skip します。
