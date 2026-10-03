@@ -6,9 +6,12 @@
 // not compile templates or styles, bundle, or render: plugin-vue, Vite,
 // Rolldown and Vue do.
 //
-// It also serves the TypeScript modules goesm produced:
-//   go:<import path>      -> gosfc:goesm/go/<import path>.ts
-//   @goesm/runtime        -> gosfc:goesm/runtime/index.ts
+// It also serves the TypeScript tree goesm produced, as virtual modules whose
+// ids mirror goesm's output layout below gosfc:goesm/:
+//   go:<import path>      -> gosfc:goesm/<import path>.ts        (the glue's import)
+//   @goesm/runtime        -> gosfc:goesm/@goesm/runtime/index.ts (the bridge's import)
+//   "./x.ts", "../y.ts"   -> resolved relative to the importing virtual id
+//                            (goesm's modules import each other and the runtime this way)
 //   gosfc:bridge.js       -> runtime/bridge.js (template bindings)
 // The ids end in .ts so that Vite's own TypeScript transform handles them,
 // and each load returns goesm's source map (generated TS -> .vue / .go),
@@ -20,8 +23,9 @@ import { fileURLToPath } from "node:url";
 import { compileSfc, mayHaveGoSetup, placeholderSfc, RUNTIME_ID } from "./compile.js";
 
 const PREFIX = "gosfc:";
-const GO_PREFIX = PREFIX + "goesm/go/";
-const RT_PREFIX = PREFIX + "goesm/runtime/";
+const TREE_PREFIX = PREFIX + "goesm/";
+const GO_PREFIX = TREE_PREFIX;
+const RT_PREFIX = TREE_PREFIX + "@goesm/runtime/";
 const BRIDGE_ID = RUNTIME_ID;
 const BRIDGE_FILE = fileURLToPath(new URL("../runtime/bridge.js", import.meta.url));
 
@@ -105,8 +109,9 @@ export default function gosfc() {
         return id;
       }
       if (source === "@goesm/runtime") return RT_PREFIX + "index.ts";
-      if (importer?.startsWith(RT_PREFIX) && source.startsWith("./")) {
-        return RT_PREFIX + path.posix.join(path.posix.dirname(importer.slice(RT_PREFIX.length)), source) + ".ts";
+      if (importer?.startsWith(TREE_PREFIX) && (source.startsWith("./") || source.startsWith("../"))) {
+        const rel = path.posix.join(path.posix.dirname(importer.slice(TREE_PREFIX.length)), source);
+        return TREE_PREFIX + (rel.endsWith(".ts") ? rel : rel + ".ts");
       }
       return null;
     },

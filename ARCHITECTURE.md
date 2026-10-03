@@ -62,7 +62,7 @@ tests/              Node のテスト（Astro build、Vite build / SSR / HMR、�
    const total = __gosfc.binding("total");
    ```
 
-6. 以降は普通の Vue SFC として `@vitejs/plugin-vue` が template / style をコンパイルします。`go:` import は plugin が goesm の出力（仮想 module、id は `gosfc:goesm/go/<import path>.ts`）に解決し、TypeScript は Vite 自身の変換に任せます。
+6. 以降は普通の Vue SFC として `@vitejs/plugin-vue` が template / style をコンパイルします。`go:` import は plugin が goesm の出力（仮想 module、id は `gosfc:goesm/<import path>.ts`、runtime は `gosfc:goesm/@goesm/runtime/*.ts`。goesm の module 同士は相対 `./x.ts` で import し合うので、plugin はそれを同じ仮想ツリー内で解決する）に解決し、TypeScript は Vite 自身の変換に任せます。
 
 ## 4. synthetic Go
 
@@ -106,14 +106,14 @@ return func(gosfcBinding string) any {
 ```
 goesm emit-ts -overlay <overlay.json> -o <dir> ./<rel>/_gosfc/<name>_vue
   入力:  overlay.json は go command 標準の -overlay 形式 {"Replace": {"/abs/.../setup.go": "<一時ファイル>"}}
-  出力:  <dir>/go/<import path>.ts (+ .ts.map)   Go package ごとに 1 module、map は .vue / .go を指す
-         <dir>/@goesm/runtime/src/*.ts           goesm runtime
+  出力:  <dir>/<import path>.ts (+ .ts.map)      Go package ごとに 1 module、map は .vue / .go を指す
+         <dir>/@goesm/runtime/*.ts               goesm runtime（module 間と runtime への import は相対 `.ts` 指定）
   失敗:  exit 1、stderr に "<file>:<line>:<col>: <message> [<layer>]"（layer は go/parser・go/types・go list・goesm lowering）
 ```
 
 概念上の `Compile(source, context) → { code, map, bindings, diagnostics }` との対応：source = overlay の synthetic Go、context = module ディレクトリと package pattern、code / map = 出力 module、diagnostics = stderr。bindings は gosfc 自身が synthetic Go を作る時点で知っているので goesm には求めていません。
 
-goesm 側の変更はこの PoC のために 1 つだけです：`build` / `emit-ts` に `-overlay` を追加（goesm の `claude/gosfc-poc-i7sa05` ブランチ、goesm PoC の PR の上に積んでいます）。go/packages の `Overlay` をそのまま使うので、module・package 解決は引き続き go command の仕事です。gosfc は Go AST にも go/packages にも依存しません。
+goesm 側の変更はこの PoC のために 1 つだけです：`build` / `emit-ts` に `-overlay` を追加（goesm PR #3、main にマージ済み）。go/packages の `Overlay` をそのまま使うので、module・package 解決は引き続き go command の仕事です。gosfc は Go AST にも go/packages にも依存しません。
 
 ## 6. template binding
 
@@ -173,7 +173,7 @@ goesm 側の変更はこの PoC のために 1 つだけです：`build` / `emit
 * HMR context の `read()` の差し替えは、Vite が `handleHotUpdate` の plugin 間で同じ context を渡すことに依存しています。plugin-vue 側に「script の前処理」を差し込む公式の入口があればそちらに移すべきです。
 * `go:` specifier と `@goesm/runtime` を Vite で解決する処理は gosfc の plugin にあります。goesm の ESM 接続の責務と考えれば、`@goesm/vite` のような形で goesm 側に移すのが自然です。
 * component ごとに goesm を 1 回起動し、依存 package も毎回 lowering します。キャッシュや常駐プロセスによる高速化はまだありません。
-* gosfc の example は goesm の未マージのブランチ上のコミット（`-overlay` 追加）に依存しています。goesm は private repository なので、取得には `GOPRIVATE=github.com/goesm-dev` と GitHub の認証が必要です。
+* gosfc の example は go.mod の pseudo-version で goesm の main 上のコミットに固定しています。goesm は private repository なので、取得には `GOPRIVATE=github.com/goesm-dev` と GitHub の認証が必要です。
 
 ## 12. formatter と editor integration の方針
 

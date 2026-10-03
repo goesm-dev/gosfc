@@ -1,7 +1,7 @@
 github.com/evanw/esbuild v0.28.2 h1:A2uETn4jrQTcXaT/shwTDTYBxDjl7fV7nXmUrJxfA2w=
 github.com/evanw/esbuild v0.28.2/go.mod h1:D2vIQZqV/vIf/VRHtViaUtViZmG7o+kKmlBfVQuRi48=
-github.com/goesm-dev/goesm v0.0.0-20261003183908-4b6c0483b7a0 h1:GsJNSTXtbHFcImAmn0k5mqaQZH9v2oBAOirwFwot7XQ=
-github.com/goesm-dev/goesm v0.0.0-20261003183908-4b6c0483b7a0/go.mod h1:+PaPxGHm/4Ijl/tGqSrqUvf14PjxrsoY8hjdEhh3Rgk=
+github.com/goesm-dev/goesm v0.0.0-20261003192415-20dbf1d25fec h1:AiAOnxR0n6u+fgteNu41d4TWWH6R8AWIhPPsIoR31MA=
+github.com/goesm-dev/goesm v0.0.0-20261003192415-20dbf1d25fec/go.mod h1:XAlhRWFsSZvLXYuyxnHhUmkUXiFCMSuX1ChG7f4bPQE=
 github.com/google/go-cmp v0.6.0 h1:ofyhxvXcZhMsU5ulbFiLKl/XBFqE1GSq7atu8tAmTRI=
 github.com/google/go-cmp v0.6.0/go.mod h1:17dUlkBOakJ0+DkrSSNjCkIjxS6bF9zb3elmeNGIjoY=
 golang.org/x/mod v0.41.0 h1:qJmnOUb4YB+FsEuM3HcWucdZASCPGhsX6uljO6pog0c=
