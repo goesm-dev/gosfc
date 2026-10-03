@@ -88,3 +88,7 @@ cd examples/astro && pnpm dev
 ```
 
 ブラウザでの HMR テストは `/opt/pw-browsers/chromium`（または `CHROMIUM` 環境変数）の Chromium を使い、無ければ skip します。
+
+## Contributing / ライセンス
+
+contribution の方法と設計原則は [CONTRIBUTING.md](CONTRIBUTING.md) を見てください。gosfc は [MIT License](LICENSE) で公開されています。
