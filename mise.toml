@@ -2,7 +2,3 @@
 go = "1.27.1"
 node = "26.10.0"
 pnpm = "12.8.1"
-
-[env]
-# goesm is a private repository; proxy.golang.org cannot fetch it.
-GOPRIVATE = "github.com/goesm-dev"
