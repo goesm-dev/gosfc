@@ -128,6 +128,22 @@ test("go: imports from JavaScript compile the package in the importer's Go modul
   assert.equal(built.total([[100, 2], [50, 1]]), 250);
 });
 
+test("programs that compile a shared package differently each get their own module", async (t) => {
+  const outDir = path.join(root, "dist-programs");
+  rmSync(outDir, { recursive: true, force: true });
+  t.after(() => rmSync(outDir, { recursive: true, force: true }));
+  await build({
+    root,
+    configFile: false,
+    logLevel: "silent",
+    plugins: plugins(),
+    build: { outDir, ssr: true, rollupOptions: { input: src("programs.js") } },
+  });
+  const built = await import(pathToFileURL(path.join(outDir, "programs.js")).href);
+  assert.equal(built.runSync(), 1); // a number, not a Promise
+  assert.equal(await built.runAsync(), 2);
+});
+
 test("dev server: a Go panic's stack trace points at the .vue file", async (t) => {
   const file = src("TmpPanic.vue");
   writeFileSync(file, `<template><div>{{ v }}</div></template>

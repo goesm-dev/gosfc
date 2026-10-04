@@ -58,6 +58,23 @@ button { color: red; }
   assert.deepEqual(setup.map.sources, [file], "TS of the Go block must map to the .vue file");
 });
 
+test("a Go block that binds nothing still compiles", async () => {
+  const source = `<template>
+  <p>static</p>
+</template>
+
+<script setup lang="go">
+import "example.com/fixture/src/cart/pkg"
+
+_ = cart.Total(nil)
+</script>
+`;
+  const file = component("TmpNoBindings.vue", source);
+  const r = await compileSfc(source, file, { root: app });
+  assert.match(r.code, /__gosfc_useGo\(__gosfc_setup, "[0-9a-f]+"\);/);
+  assert.doesNotMatch(r.code, /__gosfc\.binding/);
+});
+
 test("components without a Go block are left to the Vue tooling", async () => {
   for (const s of [
     `<template><p>{{ m }}</p></template>\n<script setup lang="ts">\nconst m = "ts"\n</script>\n`,

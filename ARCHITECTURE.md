@@ -62,7 +62,7 @@ tests/              Node のテスト（Astro build、Vite build / SSR / HMR、�
    const total = __gosfc.binding("total");
    ```
 
-6. 以降は普通の Vue SFC として `@vitejs/plugin-vue` が template / style をコンパイルします。`go:` import は plugin が goesm の出力（仮想 module、id は `gosfc:goesm/<import path>.ts`、runtime は `gosfc:goesm/@goesm/runtime/*.ts`。goesm の module 同士は相対 `./x.ts` で import し合うので、plugin はそれを同じ仮想ツリー内で解決する）に解決し、TypeScript は Vite 自身の変換に任せます。
+6. 以降は普通の Vue SFC として `@vitejs/plugin-vue` が template / style をコンパイルします。`go:` import は plugin が goesm の出力（仮想 module、id は `gosfc:goesm/<import path>.<hash>.ts`、runtime は `gosfc:goesm/@goesm/runtime/*.ts`）に解決し、TypeScript は Vite 自身の変換に任せます。コンポーネント（と `go:` を import する JS module）はそれぞれ別の goesm プログラムで、package の出力はプログラム全体に依存します（ある関数値が一方では async、他方では同期になる、など）。そのため id の hash は module のコードと、それが import する package の id から作り、goesm の相対 import（`./x.ts`）はその id に書き換えます。コードが一致する package は 1 つの module（と bundler の chunk）を共有し、一致しないものは別々の module になります。runtime はどのプログラムでも同じなので普通の id のままです。
 7. `.vue` 以外の module（`.js`、`.ts`、`.astro`）が `go:<import path>` を import している場合は、その module の transform で、import したファイルが属する Go module を基準に `goesm emit-ts <import path>` を実行し、同じ仮想ツリーに登録します。`.go` ファイルはその module の watch 対象になり、編集すると module が読み直されます。
 
 ## 4. synthetic Go
