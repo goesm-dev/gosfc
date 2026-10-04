@@ -100,7 +100,8 @@ const results = Object.fromEntries(langs.map((l) => [l, {}]));
 for (const lang of langs) await clientBuild(lang);
 const times = Object.fromEntries(langs.map((l) => [l, []]));
 for (let i = 0; i < runs; i++) {
-  for (const lang of langs) {
+  // Alternate which side goes first.
+  for (const lang of i % 2 ? [...langs].reverse() : langs) {
     const r = await clientBuild(lang);
     times[lang].push(r.ms);
     Object.assign(results[lang], { raw: r.raw, gz: r.gz });
