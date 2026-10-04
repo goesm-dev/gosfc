@@ -2,7 +2,7 @@
 
 gosfc への contribution を歓迎します。issue、pull request のどちらからでも始めてください。大きな変更や責務境界に関わる変更は、先に issue で方針を相談してもらえると助かります。
 
-gosfc は **PoC 段階** です。全体像は [README.md](README.md)、設計と未実装の項目は [ARCHITECTURE.md](ARCHITECTURE.md) にあります。
+gosfc は **PoC 段階** です。全体像は [README.ja.md](README.ja.md)、設計と未実装の項目は [ARCHITECTURE.md](ARCHITECTURE.md) にあります。
 
 ## 設計原則
 

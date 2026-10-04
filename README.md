@@ -1,11 +1,13 @@
 # gosfc
 
-Vue Single File Component の `<script setup>` で本物の Go を使うための統合レイヤーです。
+English | [日本語](README.ja.md)
+
+An integration layer for using real Go in the `<script setup>` of Vue Single File Components.
 
 ```vue
 <template>
   <div>
-    合計: {{ total }}
+    Total: {{ total }}
   </div>
 </template>
 
@@ -23,20 +25,20 @@ total := cart.Total(items)
 </script>
 ```
 
-`.go` は普通の Go package、import は普通の Go import です。Go のコンパイルは [goesm](https://github.com/goesm-dev/goesm)、SFC と template は Vue tooling、build は Vite、ページと SSR は Astro が担当します。設計は [ARCHITECTURE.md](ARCHITECTURE.md) を見てください。
+`.go` files are ordinary Go packages, and imports are ordinary Go imports. Go compilation is handled by [goesm](https://github.com/goesm-dev/goesm), SFCs and templates by the Vue tooling, builds by Vite, and pages and SSR by Astro. See [ARCHITECTURE.md](ARCHITECTURE.md) (Japanese) for the design.
 
-**状態：PoC。** 未実装の項目は ARCHITECTURE.md の「未実装・未決事項」にあります。
+**Status: PoC.** What is not implemented yet is listed in ARCHITECTURE.md, section 11 (「未実装・未決事項」).
 
-## 使い方（Astro）
+## Usage (Astro)
 
-1. Go module に goesm と gosfc を tool として追加します。バージョンは go.mod / go.sum で固定されます。
+1. Add goesm and gosfc to your Go module as tools. Their versions are pinned by go.mod / go.sum.
 
    ```sh
    go get -tool github.com/goesm-dev/goesm/cmd/goesm@<version>
    go get -tool github.com/goesm-dev/gosfc/cmd/gosfc@<version>
    ```
 
-2. Astro に integration を追加します。`@astrojs/vue` が無ければ追加されます。
+2. Add the integration to Astro. `@astrojs/vue` is added if it is not already there.
 
    ```js
    // astro.config.mjs
@@ -48,7 +50,7 @@ total := cart.Total(items)
    });
    ```
 
-3. `.vue` で `<script setup lang="go">` を使います。
+3. Use `<script setup lang="go">` in your `.vue` files.
 
    ```astro
    ---
@@ -58,7 +60,7 @@ total := cart.Total(items)
    <Summary />
    ```
 
-Vite だけで使う場合は `@vitejs/plugin-vue` の前に `@gosfc/vite` を置きます。
+To use gosfc with Vite alone, put `@gosfc/vite` before `@vitejs/plugin-vue`.
 
 ```js
 import vue from "@vitejs/plugin-vue";
@@ -67,29 +69,29 @@ import gosfc from "@gosfc/vite";
 export default { plugins: [gosfc(), vue()] };
 ```
 
-`lang="ts"` や素の `<script setup>` の component はそのまま共存できます。gosfc が触るのは `lang="go"` の component だけです。
+Components using `lang="ts"` or a plain `<script setup>` keep working alongside them. gosfc only touches components with `lang="go"`.
 
-## Go block の書き方
+## Writing the Go block
 
-* トップレベルは Vue の `<script setup>` と同じく component instance ごとに上から 1 回実行されます。`x := ...`、`var`、`const`、`type`、`func F() {...}` が書けます。
-* トップレベルの変数・定数・関数は template から参照できます。Go 関数を template から呼ぶ（`@click="Increment"` など）と、表示が Go の値に追従します。
-* import は Go の import だけです。`.vue`、`.ts`、`.go` ファイルの import はできません。
-* メソッドと generic 関数は Go package に置いてください。
+* Like Vue's `<script setup>`, the top level runs once, top to bottom, per component instance. You can write `x := ...`, `var`, `const`, `type`, and `func F() {...}`.
+* Top-level variables, constants, and functions are available in the template. When the template calls a Go function (for example `@click="Increment"`), the rendered output follows the Go values.
+* Only Go imports are allowed. You cannot import `.vue`, `.ts`, or `.go` files.
+* Put methods and generic functions in a Go package.
 
-## 開発
+## Development
 
-Go、Node.js、pnpm は [mise](https://mise.jdx.dev/) で `mise.toml` のバージョンに揃えます。goesm は private repository なので GitHub の認証が必要です（`GOPRIVATE` は `mise.toml` が設定します）。
+Go, Node.js, and pnpm are pinned to the versions in `mise.toml` with [mise](https://mise.jdx.dev/). goesm is a private repository, so you need GitHub authentication (`mise.toml` sets `GOPRIVATE`).
 
 ```sh
 mise install
 pnpm install
-pnpm test                      # go test ./... と tests/*.test.mjs
-cd examples/astro && pnpm build   # dist/index.html に「合計: 200」
+pnpm test                      # go test ./... and tests/*.test.mjs
+cd examples/astro && pnpm build   # dist/index.html contains 「合計: 200」
 cd examples/astro && pnpm dev
 ```
 
-ブラウザでの HMR テストは `/opt/pw-browsers/chromium`（または `CHROMIUM` 環境変数）の Chromium を使い、無ければ skip します。
+The browser HMR test uses Chromium at `/opt/pw-browsers/chromium` (or the `CHROMIUM` environment variable) and is skipped if it is not found.
 
-## Contributing / ライセンス
+## Contributing / License
 
-contribution の方法と設計原則は [CONTRIBUTING.md](CONTRIBUTING.md) を見てください。gosfc は [MIT License](LICENSE) で公開されています。
+See [CONTRIBUTING.md](CONTRIBUTING.md) for how to contribute and for the design principles. gosfc is released under the [MIT License](LICENSE).
