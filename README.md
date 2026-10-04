@@ -92,17 +92,17 @@ The same components written with `<script setup lang="go">` and with `<script se
 
 | | gosfc (`lang="go"`) | Vue (`lang="ts"`) | ratio |
 |---|---:|---:|---:|
-| Client build time | 177 ms | 113 ms | 1.57x |
+| Client build time | 154 ms | 93 ms | 1.65x |
 | Client JS (minified) | 68.2 KiB | 59.8 KiB | 1.14x |
 | Client JS (gzip) | 26.4 KiB | 23.3 KiB | 1.13x |
-| SSR render, small component | 29.7 µs | 23.6 µs | 1.26x |
-| SSR render, 1,000,000 items | 106.1 ms | 21.8 ms | 4.86x |
+| SSR render, small component | 13.1 µs | 12.2 µs | 1.08x |
+| SSR render, 1,000,000 items | 106.1 ms | 93.5 ms | 1.14x |
 
 * **Client build time**: `vite build` of a page with a counter and a cart summary. Median of 9 builds after one warm-up build, so the goesm binary and the go command's build cache are warm, as in an edit-and-rebuild loop.
 * **Client JS**: every JS file of that build, Vue runtime included. The difference (+8.4 KiB, +3.1 KiB gzip) is goesm's runtime and the code that keeps Go semantics.
-* **SSR render**: `renderToString` with the production SSR build, both sides rendering the same HTML. "small component" is a cart summary of 3 items; "1,000,000 items" builds and sums 1,000,000 items in the component's setup. The Go version pays for Go semantics there: `range` copies each struct value, and slice indexing and `%` follow Go's rules.
+* **SSR render**: `renderToString` with the production SSR build, both sides rendering the same HTML. Each side runs in its own fresh Node process, 5 times with the order alternating, and the table shows the median. "small component" is a cart summary of 3 items; "1,000,000 items" builds and sums 1,000,000 items in the component's setup, which on both sides is mostly allocation. The small remaining gap is presumably the code goesm generates to keep Go semantics (for example, `range` copies each struct value); it has not been profiled.
 
-Measured with `pnpm bench` on 2026-10-04 with the `mise.toml` versions (Node.js 26.10.0, Go 1.27.1) and goesm 20dbf1d, on a 4 vCPU Intel Xeon 2.80GHz cloud VM. Sizes are exact; timings move between runs on that machine (over 5 runs the small-component SSR ratio ranged from 0.94x to 1.36x and the 1,000,000-item ratio from 4.6x to 6.3x).
+Measured with `pnpm bench` on 2026-10-04 with the `mise.toml` versions (Node.js 26.10.0, Go 1.27.1) and goesm 20dbf1d, on a 4 vCPU Intel Xeon 2.80GHz cloud VM. Sizes are exact; timings move between runs on that machine (over 5 runs the ratios ranged from 1.43x to 1.71x for the build, 0.93x to 1.13x for the small component and 1.08x to 1.14x for 1,000,000 items).
 
 ## Development
 
