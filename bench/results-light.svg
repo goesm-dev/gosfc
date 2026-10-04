@@ -1,0 +1,43 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="720" height="308" viewBox="0 0 720 308" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif" role="img" aria-labelledby="t">
+<title id="t">Client build time: gosfc (lang=&quot;go&quot;) 196 ms, Vue (lang=&quot;ts&quot;) 130 ms; Client JS (minified): gosfc (lang=&quot;go&quot;) 68.2 KiB, Vue (lang=&quot;ts&quot;) 59.8 KiB; Client JS (gzip): gosfc (lang=&quot;go&quot;) 26.4 KiB, Vue (lang=&quot;ts&quot;) 23.3 KiB; SSR render, small component: gosfc (lang=&quot;go&quot;) 13.8 µs, Vue (lang=&quot;ts&quot;) 12.9 µs; SSR render, 1,000,000 items: gosfc (lang=&quot;go&quot;) 104.9 ms, Vue (lang=&quot;ts&quot;) 95.8 ms</title>
+<rect x="0" y="6" width="12" height="12" rx="3" fill="#2a78d6"/>
+<text x="18" y="16" font-size="13" fill="#1f2328">gosfc (lang=&quot;go&quot;)</text>
+<rect x="169.5" y="6" width="12" height="12" rx="3" fill="#eb6834"/>
+<text x="187.5" y="16" font-size="13" fill="#1f2328">Vue (lang=&quot;ts&quot;)</text>
+<text x="720" y="16" font-size="12" fill="#59636e" text-anchor="end">Shorter is better · each panel has its own scale from 0</text>
+<line x1="200" y1="40" x2="200" y2="78" stroke="#d1d9e0" stroke-width="1"/>
+<text x="0" y="57" font-size="13" fill="#1f2328">Client build time</text>
+<text x="0" y="73" font-size="12" fill="#59636e">gosfc / Vue: 1.51x</text>
+<path d="M200,44h436a4,4 0 0 1 4,4v6a4,4 0 0 1 -4,4h-436z" fill="#2a78d6"/>
+<text x="646" y="55" font-size="12" fill="#1f2328">196 ms</text>
+<path d="M200,60h287.88012465898913a4,4 0 0 1 4,4v6a4,4 0 0 1 -4,4h-287.88012465898913z" fill="#eb6834"/>
+<text x="497.88012465898913" y="71" font-size="12" fill="#1f2328">130 ms</text>
+<line x1="200" y1="92" x2="200" y2="130" stroke="#d1d9e0" stroke-width="1"/>
+<text x="0" y="109" font-size="13" fill="#1f2328">Client JS (minified)</text>
+<text x="0" y="125" font-size="12" fill="#59636e">gosfc / Vue: 1.14x</text>
+<path d="M200,96h436a4,4 0 0 1 4,4v6a4,4 0 0 1 -4,4h-436z" fill="#2a78d6"/>
+<text x="646" y="107" font-size="12" fill="#1f2328">68.2 KiB</text>
+<path d="M200,112h381.5330479721701a4,4 0 0 1 4,4v6a4,4 0 0 1 -4,4h-381.5330479721701z" fill="#eb6834"/>
+<text x="591.5330479721702" y="123" font-size="12" fill="#1f2328">59.8 KiB</text>
+<line x1="200" y1="144" x2="200" y2="182" stroke="#d1d9e0" stroke-width="1"/>
+<text x="0" y="161" font-size="13" fill="#1f2328">Client JS (gzip)</text>
+<text x="0" y="177" font-size="12" fill="#59636e">gosfc / Vue: 1.13x</text>
+<path d="M200,148h436a4,4 0 0 1 4,4v6a4,4 0 0 1 -4,4h-436z" fill="#2a78d6"/>
+<text x="646" y="159" font-size="12" fill="#1f2328">26.4 KiB</text>
+<path d="M200,164h384.0688788707413a4,4 0 0 1 4,4v6a4,4 0 0 1 -4,4h-384.0688788707413z" fill="#eb6834"/>
+<text x="594.0688788707413" y="175" font-size="12" fill="#1f2328">23.3 KiB</text>
+<line x1="200" y1="196" x2="200" y2="234" stroke="#d1d9e0" stroke-width="1"/>
+<text x="0" y="213" font-size="13" fill="#1f2328">SSR render, small component</text>
+<text x="0" y="229" font-size="12" fill="#59636e">gosfc / Vue: 1.07x</text>
+<path d="M200,200h436a4,4 0 0 1 4,4v6a4,4 0 0 1 -4,4h-436z" fill="#2a78d6"/>
+<text x="646" y="211" font-size="12" fill="#1f2328">13.8 µs</text>
+<path d="M200,216h407.464656991999a4,4 0 0 1 4,4v6a4,4 0 0 1 -4,4h-407.464656991999z" fill="#eb6834"/>
+<text x="617.4646569919989" y="227" font-size="12" fill="#1f2328">12.9 µs</text>
+<line x1="200" y1="248" x2="200" y2="286" stroke="#d1d9e0" stroke-width="1"/>
+<text x="0" y="265" font-size="13" fill="#1f2328">SSR render, 1,000,000 items</text>
+<text x="0" y="281" font-size="12" fill="#59636e">gosfc / Vue: 1.09x</text>
+<path d="M200,252h436a4,4 0 0 1 4,4v6a4,4 0 0 1 -4,4h-436z" fill="#2a78d6"/>
+<text x="646" y="263" font-size="12" fill="#1f2328">104.9 ms</text>
+<path d="M200,268h397.99784241611434a4,4 0 0 1 4,4v6a4,4 0 0 1 -4,4h-397.99784241611434z" fill="#eb6834"/>
+<text x="607.9978424161143" y="279" font-size="12" fill="#1f2328">95.8 ms</text>
+</svg>
