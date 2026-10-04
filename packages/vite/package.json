@@ -2,6 +2,7 @@
   "name": "@gosfc/vite",
   "version": "0.0.0",
   "description": "Vite plugin that compiles <script setup lang=\"go\"> in Vue SFCs through goesm",
+  "license": "MIT",
   "type": "module",
   "exports": {
     ".": "./src/index.js"
