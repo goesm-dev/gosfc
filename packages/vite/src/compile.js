@@ -174,7 +174,7 @@ export async function compileSfc(code, filename, opts) {
         `import { useGo as __gosfc_useGo } from ${JSON.stringify(RUNTIME_ID)};`,
         `const __gosfc = __gosfc_useGo(__gosfc_setup, ${version});`,
       ];
-  glue.push(...synth.bindings.map((b) => `const ${b.name} = __gosfc.binding(${JSON.stringify(b.name)});`));
+  glue.push(...(synth.bindings ?? []).map((b) => `const ${b.name} = __gosfc.binding(${JSON.stringify(b.name)});`));
   // Keep the line count so positions after the block do not move.
   const lines = block.content.split("\n").length;
   while (glue.length < lines) glue.push("");
