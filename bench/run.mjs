@@ -26,7 +26,11 @@ import { renderToString } from "vue/server-renderer";
 const root = fileURLToPath(new URL(".", import.meta.url));
 const langs = ["go", "ts"];
 const plugins = (lang) => (lang === "go" ? [gosfc(), vue()] : [vue()]);
-const median = (xs) => [...xs].sort((a, b) => a - b)[Math.floor(xs.length / 2)];
+function median(xs) {
+  const s = [...xs].sort((a, b) => a - b);
+  const m = s.length >> 1;
+  return s.length % 2 ? s[m] : (s[m - 1] + s[m]) / 2;
+}
 const kb = (n) => (n / 1024).toFixed(1) + " KiB";
 
 // Median over `batches` batches of `perBatch` renders, in ms per render.
