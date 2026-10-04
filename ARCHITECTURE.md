@@ -173,7 +173,7 @@ goesm 側の変更はこの PoC のために 1 つだけです：`build` / `emit
 * HMR context の `read()` の差し替えは、Vite が `handleHotUpdate` の plugin 間で同じ context を渡すことに依存しています。plugin-vue 側に「script の前処理」を差し込む公式の入口があればそちらに移すべきです。
 * `go:` specifier と `@goesm/runtime` を Vite で解決する処理は gosfc の plugin にあります。goesm の ESM 接続の責務と考えれば、`@goesm/vite` のような形で goesm 側に移すのが自然です。
 * component ごとに goesm を 1 回起動し、依存 package も毎回 lowering します。キャッシュや常駐プロセスによる高速化はまだありません。
-* gosfc の example は go.mod の pseudo-version で goesm の main 上のコミットに固定しています。goesm は private repository なので、取得には `GOPRIVATE=github.com/goesm-dev` と GitHub の認証が必要です。
+* gosfc の example は go.mod の pseudo-version で goesm の main 上のコミットに固定しています。
 
 ## 12. formatter と editor integration の方針
 

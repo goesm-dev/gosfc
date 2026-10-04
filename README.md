@@ -2,6 +2,14 @@
 
 English | [日本語](README.ja.md)
 
+[![Status: PoC](https://img.shields.io/badge/status-PoC-orange)](ARCHITECTURE.md)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
+[![Go 1.27](https://img.shields.io/badge/Go-1.27-00ADD8?logo=go&logoColor=white)](https://go.dev/)
+[![Vue 3](https://img.shields.io/badge/Vue-3-4FC08D?logo=vuedotjs&logoColor=white)](https://vuejs.org/)
+[![Vite 8](https://img.shields.io/badge/Vite-8-646CFF?logo=vite&logoColor=white)](https://vite.dev/)
+[![Astro 7](https://img.shields.io/badge/Astro-7-BC52EE?logo=astro&logoColor=white)](https://astro.build/)
+[![goesm](https://img.shields.io/badge/compiled%20by-goesm-00ADD8)](https://github.com/goesm-dev/goesm)
+
 An integration layer for using real Go in the `<script setup>` of Vue Single File Components.
 
 ```vue
@@ -78,14 +86,33 @@ Components using `lang="ts"` or a plain `<script setup>` keep working alongside 
 * Only Go imports are allowed. You cannot import `.vue`, `.ts`, or `.go` files.
 * Put methods and generic functions in a Go package.
 
+## Benchmark
+
+The same components written with `<script setup lang="go">` and with `<script setup lang="ts">` ([bench/](bench)), built with Vite 8 and `@vitejs/plugin-vue`. The Go side adds `@gosfc/vite` in front; nothing else differs.
+
+| | gosfc (`lang="go"`) | Vue (`lang="ts"`) | ratio |
+|---|---:|---:|---:|
+| Client build time | 177 ms | 113 ms | 1.57x |
+| Client JS (minified) | 68.2 KiB | 59.8 KiB | 1.14x |
+| Client JS (gzip) | 26.4 KiB | 23.3 KiB | 1.13x |
+| SSR render, small component | 29.7 µs | 23.6 µs | 1.26x |
+| SSR render, 1,000,000 items | 106.1 ms | 21.8 ms | 4.86x |
+
+* **Client build time**: `vite build` of a page with a counter and a cart summary. Median of 9 builds after one warm-up build, so the goesm binary and the go command's build cache are warm, as in an edit-and-rebuild loop.
+* **Client JS**: every JS file of that build, Vue runtime included. The difference (+8.4 KiB, +3.1 KiB gzip) is goesm's runtime and the code that keeps Go semantics.
+* **SSR render**: `renderToString` with the production SSR build, both sides rendering the same HTML. "small component" is a cart summary of 3 items; "1,000,000 items" builds and sums 1,000,000 items in the component's setup. The Go version pays for Go semantics there: `range` copies each struct value, and slice indexing and `%` follow Go's rules.
+
+Measured with `pnpm bench` on 2026-10-04 with the `mise.toml` versions (Node.js 26.10.0, Go 1.27.1) and goesm 20dbf1d, on a 4 vCPU Intel Xeon 2.80GHz cloud VM. Sizes are exact; timings move between runs on that machine (over 5 runs the small-component SSR ratio ranged from 0.94x to 1.36x and the 1,000,000-item ratio from 4.6x to 6.3x).
+
 ## Development
 
-Go, Node.js, and pnpm are pinned to the versions in `mise.toml` with [mise](https://mise.jdx.dev/). goesm is a private repository, so you need GitHub authentication (`mise.toml` sets `GOPRIVATE`).
+Go, Node.js, and pnpm are pinned to the versions in `mise.toml` with [mise](https://mise.jdx.dev/).
 
 ```sh
 mise install
 pnpm install
 pnpm test                      # go test ./... and tests/*.test.mjs
+pnpm bench                     # bench/run.mjs (the Benchmark table)
 cd examples/astro && pnpm build   # dist/index.html contains 「合計: 200」
 cd examples/astro && pnpm dev
 ```

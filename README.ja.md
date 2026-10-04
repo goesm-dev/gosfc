@@ -2,6 +2,14 @@
 
 [English](README.md) | 日本語
 
+[![Status: PoC](https://img.shields.io/badge/status-PoC-orange)](ARCHITECTURE.md)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
+[![Go 1.27](https://img.shields.io/badge/Go-1.27-00ADD8?logo=go&logoColor=white)](https://go.dev/)
+[![Vue 3](https://img.shields.io/badge/Vue-3-4FC08D?logo=vuedotjs&logoColor=white)](https://vuejs.org/)
+[![Vite 8](https://img.shields.io/badge/Vite-8-646CFF?logo=vite&logoColor=white)](https://vite.dev/)
+[![Astro 7](https://img.shields.io/badge/Astro-7-BC52EE?logo=astro&logoColor=white)](https://astro.build/)
+[![goesm](https://img.shields.io/badge/compiled%20by-goesm-00ADD8)](https://github.com/goesm-dev/goesm)
+
 Vue Single File Component の `<script setup>` で本物の Go を使うための統合レイヤーです。
 
 ```vue
@@ -78,14 +86,33 @@ export default { plugins: [gosfc(), vue()] };
 * import は Go の import だけです。`.vue`、`.ts`、`.go` ファイルの import はできません。
 * メソッドと generic 関数は Go package に置いてください。
 
+## ベンチマーク
+
+同じ component を `<script setup lang="go">` と `<script setup lang="ts">` で書いて比べています（[bench/](bench)）。どちらも Vite 8 と `@vitejs/plugin-vue` で build し、Go 側は前に `@gosfc/vite` を置く以外は同じ設定です。
+
+| | gosfc (`lang="go"`) | Vue (`lang="ts"`) | ratio |
+|---|---:|---:|---:|
+| Client build time | 177 ms | 113 ms | 1.57x |
+| Client JS (minified) | 68.2 KiB | 59.8 KiB | 1.14x |
+| Client JS (gzip) | 26.4 KiB | 23.3 KiB | 1.13x |
+| SSR render, small component | 29.7 µs | 23.6 µs | 1.26x |
+| SSR render, 1,000,000 items | 106.1 ms | 21.8 ms | 4.86x |
+
+* **Client build time**：counter と cart summary を置いたページの `vite build`。warm-up の build を 1 回してから 9 回測った中央値です。goesm の binary と go command の build cache は温まった状態で、編集して build し直すときと同じ条件です。
+* **Client JS**：その build の JS ファイルすべて（Vue runtime を含む）。差（+8.4 KiB、gzip で +3.1 KiB）は goesm の runtime と Go の意味論を守るためのコードです。
+* **SSR render**：production の SSR build で `renderToString` した時間で、両者は同じ HTML を出力します。「small component」は 3 品の cart summary、「1,000,000 items」は component の setup で 1,000,000 品を作って合計します。後者で Go 版が遅いのは Go の意味論を守るためで、`range` は struct を値としてコピーし、slice の index と `%` も Go の規則どおりに動きます。
+
+2026-10-04 に `pnpm bench` で測りました。`mise.toml` のバージョン（Node.js 26.10.0、Go 1.27.1）と goesm 20dbf1d を使い、4 vCPU の Intel Xeon 2.80GHz のクラウド VM で実行しています。サイズは決定的ですが、時間はこの環境では実行ごとに揺れます（5 回の実行で small component の SSR の比は 0.94x〜1.36x、1,000,000 items の比は 4.6x〜6.3x でした）。
+
 ## 開発
 
-Go、Node.js、pnpm は [mise](https://mise.jdx.dev/) で `mise.toml` のバージョンに揃えます。goesm は private repository なので GitHub の認証が必要です（`GOPRIVATE` は `mise.toml` が設定します）。
+Go、Node.js、pnpm は [mise](https://mise.jdx.dev/) で `mise.toml` のバージョンに揃えます。
 
 ```sh
 mise install
 pnpm install
 pnpm test                      # go test ./... と tests/*.test.mjs
+pnpm bench                     # bench/run.mjs（ベンチマークの表）
 cd examples/astro && pnpm build   # dist/index.html に「合計: 200」
 cd examples/astro && pnpm dev
 ```

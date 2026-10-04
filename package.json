@@ -4,7 +4,8 @@
   "license": "MIT",
   "type": "module",
   "scripts": {
-    "test": "go test ./... && node --test --test-concurrency=1 tests/*.test.mjs"
+    "test": "go test ./... && node --test --test-concurrency=1 tests/*.test.mjs",
+    "bench": "node bench/run.mjs"
   },
   "devDependencies": {
     "@gosfc/vite": "workspace:^",
