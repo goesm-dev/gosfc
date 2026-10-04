@@ -97,6 +97,7 @@ return func(gosfcBinding string) any {
 * 並び：const / type 宣言 → 各 `func F(...)` のための `var F func(...)` → 残りを元の順で。`func F() {...}` は `F=func() {...}` に置き換えます。`F=func` は `func F` と同じ長さなので列もずれません。関数同士の相互参照・再帰ができ、本体は上から順に実行されます（Vue の `setup()` と同じ）。宣言より前で関数を呼ぶと nil func の panic になります。
 * 返り値の lookup 関数が template binding の入口です。値は `any` に box されるので Go の型 descriptor を保ったまま JS 側に渡ります。全 binding がここで参照されるため、template からしか使わない変数も Go の「declared and not used」にはなりません。未使用 import は通常どおり Go のエラーです。
 * package は `.vue` と同じディレクトリの下の、ディスクには存在しない `_gosfc/<name>_vue/` に置きます（goesm の overlay で渡す）。そのため import path は `<module>/<dir>/_gosfc/<name>_vue` になり、`internal/` の可視性も `.vue` の場所を基準に普通の Go と同じく働きます。ユーザーのソースツリーには何も書きません。
+* block が `type Props struct {...}` を宣言すると、その型は package レベルに置かれ、setup 関数は `func GosfcSetup(props Props)` になります。さらに `func GosfcProps() any { return Props{} }` を生成し、bridge はその型 descriptor のフィールドを見て component の属性（`useAttrs()`）から Props の値を作ります。glue には `defineOptions({ inheritAttrs: false })` が入るので、属性は root 要素に落ちません。Props のフィールドの型は import した型か組み込み型に限られます（block 内の型はまだ宣言されていないため）。
 * gosfc は Go を parse しません。`internal/synth` は標準の `go/scanner` でトークン化し、括弧の深さと scanner が挿入するセミコロンだけでトップレベルの区切りを決め、各要素の先頭トークン（`import` / `func 名前` / `var` / `const` / `type` / `a, b :=`）を見て分類と名前の取得をします。構文・型のエラーは全て Go toolchain が報告します。
 * gosfc が自分で出す診断は Go の外の制約だけです：メソッド宣言、generic 関数、import の位置、JavaScript の予約語と衝突する binding 名（`new`、`class` など）、`<script lang="go">`（setup なし）。
 
@@ -160,7 +161,7 @@ goesm 側の変更はこの PoC のために 1 つだけです：`build` / `emit
 
 未実装：
 
-* props / emits / slots を Go から扱う方法（`defineProps` 相当）。現状、Go block は外から値を受け取れません。
+* emits / slots を Go から扱う方法。props は §4 の `type Props` で受け取れますが、setup 時のスナップショットで、変更には追従しません。
 * `gosfc fmt`（§12）、language server、VS Code extension。
 * メソッド、generic 関数を Go block 内で宣言すること（Go package に置く必要がある）。
 * goroutine やタイマーなど、binding 経由の呼び出し以外で起きた Go 状態の変更を template に反映すること。
