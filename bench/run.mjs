@@ -1,6 +1,7 @@
 // Compares the same components written with <script setup lang="go"> (gosfc)
 // and <script setup lang="ts"> (plain Vue): client build time, client bundle
-// size, and SSR render time of the production build.
+// size, and SSR render time of the production build. Prints a Markdown table
+// and writes the same numbers as results-light.svg / results-dark.svg.
 //
 //   node bench/run.mjs [runs]
 //
@@ -11,7 +12,7 @@
 // into another's.
 
 import { execFileSync } from "node:child_process";
-import { readdirSync, readFileSync, rmSync } from "node:fs";
+import { readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { performance } from "node:perf_hooks";
@@ -22,6 +23,7 @@ import gosfc from "@gosfc/vite";
 import { build } from "vite";
 import { createSSRApp } from "vue";
 import { renderToString } from "vue/server-renderer";
+import { renderChart } from "./chart.mjs";
 
 const root = fileURLToPath(new URL(".", import.meta.url));
 const langs = ["go", "ts"];
@@ -139,12 +141,18 @@ const [go, ts] = [results.go, results.ts];
 if (Object.keys(workloads).some((name) => go.html[name] !== ts.html[name])) {
   throw new Error(`Go and TypeScript components render differently: ${JSON.stringify([go.html, ts.html])}`);
 }
-const ratio = (a, b) => (a / b).toFixed(2) + "x";
+const metrics = [
+  { label: "Client build time", go: go.buildMs, ts: ts.buildMs, format: (v) => `${v.toFixed(0)} ms` },
+  { label: "Client JS (minified)", go: go.raw, ts: ts.raw, format: kb },
+  { label: "Client JS (gzip)", go: go.gz, ts: ts.gz, format: kb },
+  { label: "SSR render, small component", go: go.Summary * 1000, ts: ts.Summary * 1000, format: (v) => `${v.toFixed(1)} µs` },
+  { label: "SSR render, 1,000,000 items", go: go.Heavy, ts: ts.Heavy, format: (v) => `${v.toFixed(1)} ms` },
+];
+const names = { go: 'gosfc (lang="go")', ts: 'Vue (lang="ts")' };
+for (const theme of ["light", "dark"]) writeFileSync(path.join(root, `results-${theme}.svg`), renderChart(metrics, theme, names));
+
 console.log(`Node ${process.version}, ${os.cpus()[0].model}, ${os.cpus().length} CPUs, median of ${runs} builds; SSR in ${rounds} fresh processes per side and component\n`);
 console.log("| | gosfc (`lang=\"go\"`) | Vue (`lang=\"ts\"`) | ratio |");
 console.log("|---|---:|---:|---:|");
-console.log(`| Client build time | ${go.buildMs.toFixed(0)} ms | ${ts.buildMs.toFixed(0)} ms | ${ratio(go.buildMs, ts.buildMs)} |`);
-console.log(`| Client JS (minified) | ${kb(go.raw)} | ${kb(ts.raw)} | ${ratio(go.raw, ts.raw)} |`);
-console.log(`| Client JS (gzip) | ${kb(go.gz)} | ${kb(ts.gz)} | ${ratio(go.gz, ts.gz)} |`);
-console.log(`| SSR render, small component | ${(go.Summary * 1000).toFixed(1)} µs | ${(ts.Summary * 1000).toFixed(1)} µs | ${ratio(go.Summary, ts.Summary)} |`);
-console.log(`| SSR render, 1,000,000 items | ${go.Heavy.toFixed(1)} ms | ${ts.Heavy.toFixed(1)} ms | ${ratio(go.Heavy, ts.Heavy)} |`);
+for (const m of metrics) console.log(`| ${m.label} | ${m.format(m.go)} | ${m.format(m.ts)} | ${(m.go / m.ts).toFixed(2)}x |`);
+console.log(`\nWrote bench/results-light.svg and bench/results-dark.svg.`);
