@@ -92,17 +92,17 @@ export default { plugins: [gosfc(), vue()] };
 
 | | gosfc (`lang="go"`) | Vue (`lang="ts"`) | ratio |
 |---|---:|---:|---:|
-| Client build time | 157 ms | 102 ms | 1.53x |
+| Client build time | 159 ms | 105 ms | 1.52x |
 | Client JS (minified) | 68.2 KiB | 59.8 KiB | 1.14x |
 | Client JS (gzip) | 26.4 KiB | 23.3 KiB | 1.13x |
-| SSR render, small component | 12.8 µs | 11.6 µs | 1.10x |
-| SSR render, 1,000,000 items | 105.3 ms | 95.8 ms | 1.10x |
+| SSR render, small component | 14.5 µs | 14.9 µs | 0.97x |
+| SSR render, 1,000,000 items | 107.5 ms | 96.6 ms | 1.11x |
 
 * **Client build time**：counter と cart summary を置いたページの `vite build`。それぞれ warm-up の build を 1 回してから、先に build する側を入れ替えながら 9 回測った中央値です。goesm の binary と go command の build cache は温まった状態で、編集して build し直すときと同じ条件です。
 * **Client JS**：その build の JS ファイルすべて（Vue runtime を含む）。差（+8.4 KiB、gzip で +3.1 KiB）は goesm の runtime と Go の意味論を守るためのコードです。
-* **SSR render**：production の SSR build で `renderToString` した時間で、両者は同じ HTML を出力します。それぞれ新しい Node process で、順番を入れ替えながら 5 回測った中央値です。「small component」は 3 品の cart summary、「1,000,000 items」は component の setup で 1,000,000 品を作って合計するもので、どちらも時間の大半はメモリ確保です。残る小さな差は、goesm が Go の意味論を守るために生成するコード（たとえば `range` での struct の値コピー）によるものと思われますが、profile はまだ取っていません。
+* **SSR render**：production の SSR build で `renderToString` した時間で、両者は同じ HTML を出力します。side と component ごとに新しい Node process で、順番を入れ替えながら 5 回測った中央値です。「small component」は 3 品の cart summary、「1,000,000 items」は component の setup で 1,000,000 品を作って合計するもので、どちらも時間の大半はメモリ確保です。そこでの小さな差は、goesm が Go の意味論を守るために生成するコード（たとえば `range` での struct の値コピー）によるものと思われますが、profile はまだ取っていません。
 
-2026-10-04 に `pnpm bench` で測りました。`mise.toml` のバージョン（Node.js 26.10.0、Go 1.27.1）と goesm 20dbf1d を使い、4 vCPU の Intel Xeon 2.80GHz のクラウド VM で実行しています。サイズは決定的ですが、時間はこの環境では実行ごとに揺れます（5 回の実行で、比は build が 1.16x〜1.67x、small component が 1.07x〜1.10x、1,000,000 items が 1.02x〜1.16x でした）。
+2026-10-04 に `pnpm bench` で測りました。`mise.toml` のバージョン（Node.js 26.10.0、Go 1.27.1）と goesm 20dbf1d を使い、4 vCPU の Intel Xeon 2.80GHz のクラウド VM で実行しています。サイズは決定的ですが、時間はこの環境では実行ごとに揺れます（5 回の実行で、比は build が 1.39x〜1.96x、small component が 0.95x〜1.07x、1,000,000 items が 1.11x〜1.18x でした）。
 
 ## 開発
 
