@@ -125,3 +125,43 @@ func TestRecursiveFunc(t *testing.T) {
 		t.Errorf("errors: %v", errs)
 	}
 }
+
+func TestProps(t *testing.T) {
+	out := build(t, `
+import "strings"
+
+type Props struct {
+	Route string
+	Count int `+"`json:\"n\"`"+`
+}
+
+upper := strings.ToUpper(props.Route)
+`)
+	if !out.Props {
+		t.Fatal("Props not detected")
+	}
+	if errs := check(t, out); len(errs) > 0 {
+		t.Fatalf("%v\n%s", errs, out.Go)
+	}
+	for _, want := range []string{"func GosfcProps() any { return Props{} }", "func GosfcSetup(props Props) func(string) any {"} {
+		if !strings.Contains(out.Go, want) {
+			t.Errorf("missing %q in\n%s", want, out.Go)
+		}
+	}
+	if got := names(out.Bindings); !reflect.DeepEqual(got, []string{"upper"}) {
+		t.Errorf("bindings %v", got)
+	}
+
+	out = build(t, "type Props int\n")
+	if len(out.Diagnostics) != 1 || !strings.Contains(out.Diagnostics[0].Message, "Props must be a struct type") {
+		t.Errorf("%+v", out.Diagnostics)
+	}
+}
+
+func names(bs []Binding) []string {
+	var out []string
+	for _, b := range bs {
+		out = append(out, b.Name)
+	}
+	return out
+}
