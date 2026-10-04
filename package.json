@@ -1,11 +1,11 @@
 {
   "name": "gosfc-monorepo",
   "private": true,
+  "license": "MIT",
   "type": "module",
   "scripts": {
     "test": "go test ./... && node --test --test-concurrency=1 tests/*.test.mjs"
   },
-  "packageManager": "pnpm@10.0.0",
   "devDependencies": {
     "@gosfc/vite": "workspace:^",
     "@jridgewell/trace-mapping": "^0.3.31",
