@@ -180,6 +180,32 @@ export async function compileSfc(code, filename, opts) {
 }
 
 /**
+ * Compiles a Go package imported from JavaScript or TypeScript (`import { F }
+ * from "go:<import path>"` in a .js, .ts or .astro module) rather than from a
+ * Go block. The package is resolved in the Go module of the importing file,
+ * exactly as an import in a .go file of that module would be.
+ * @param {string} importPath
+ * @param {string} importer absolute path of the importing file
+ * @returns {Promise<{ modules: GoModuleOutput[], runtime: RuntimeFile[], goFiles: string[] }>}
+ */
+export async function compilePackage(importPath, importer) {
+  const mod = findGoModule(path.dirname(importer));
+  if (!mod) throw new Error(`gosfc: no go.mod found for ${importer}, which imports go:${importPath}`);
+  const goesmBin = await goTool(mod.dir, "goesm");
+  const res = await emitTS({ goesm: goesmBin, moduleDir: mod.dir, overlay: {}, pattern: importPath });
+  if (!res.ok) {
+    const lines = res.diagnostics.map((d) => {
+      const at = d.file ? `${d.file}${d.line ? `:${d.line}:${d.column ?? 1}` : ""}: ` : "";
+      return at + d.message + (d.layer ? ` [${d.layer}]` : "");
+    });
+    throw new Error(`gosfc: compiling go:${importPath} (imported by ${importer}) failed:\n${lines.join("\n")}`);
+  }
+  const goFiles = new Set();
+  for (const m of res.modules) for (const s of m.map.sources ?? []) if (s.endsWith(".go")) goFiles.add(s);
+  return { modules: res.modules, runtime: res.runtime, goFiles: [...goFiles] };
+}
+
+/**
  * An SFC whose Go block failed to compile, as shown to @vitejs/plugin-vue's
  * HMR: the Go block becomes an empty script whose content still changes with
  * the Go source, so the component is requested again and the compile error is
