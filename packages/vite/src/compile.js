@@ -107,7 +107,7 @@ export async function compileSfc(code, filename, opts) {
     }),
   });
   if (synthRes.code !== 0) throw new Error(`gosfc synth failed:\n${synthRes.stderr}`);
-  /** @type {{ go: string, bindings: {name: string, kind: string}[], diagnostics: {line: number, column: number, message: string}[] }} */
+  /** @type {{ go: string, bindings: {name: string, kind: string}[], diagnostics: {line: number, column: number, message: string}[], props: boolean }} */
   const synth = JSON.parse(synthRes.stdout);
 
   /** @type {SfcError[]} */
@@ -158,13 +158,23 @@ export async function compileSfc(code, filename, opts) {
   // it. (plugin-vue compares script ASTs, so it has to be code, not a comment.)
   const hash = createHash("sha256");
   for (const m of res.modules) hash.update(m.importPath).update("\0").update(m.code);
-  const glue = [
-    "",
-    `import { GosfcSetup as __gosfc_setup } from ${JSON.stringify("go:" + importPath)};`,
-    `import { useGo as __gosfc_useGo } from ${JSON.stringify(RUNTIME_ID)};`,
-    `const __gosfc = __gosfc_useGo(__gosfc_setup, ${JSON.stringify(hash.digest("hex").slice(0, 16))});`,
-    ...synth.bindings.map((b) => `const ${b.name} = __gosfc.binding(${JSON.stringify(b.name)});`),
-  ];
+  const version = JSON.stringify(hash.digest("hex").slice(0, 16));
+  const glue = synth.props
+    ? [
+        "",
+        `import { GosfcSetup as __gosfc_setup, GosfcProps as __gosfc_props } from ${JSON.stringify("go:" + importPath)};`,
+        `import { useGo as __gosfc_useGo } from ${JSON.stringify(RUNTIME_ID)};`,
+        // Props arrive as attributes; they must not also land on the root element.
+        "defineOptions({ inheritAttrs: false });",
+        `const __gosfc = __gosfc_useGo(__gosfc_setup, ${version}, __gosfc_props);`,
+      ]
+    : [
+        "",
+        `import { GosfcSetup as __gosfc_setup } from ${JSON.stringify("go:" + importPath)};`,
+        `import { useGo as __gosfc_useGo } from ${JSON.stringify(RUNTIME_ID)};`,
+        `const __gosfc = __gosfc_useGo(__gosfc_setup, ${version});`,
+      ];
+  glue.push(...synth.bindings.map((b) => `const ${b.name} = __gosfc.binding(${JSON.stringify(b.name)});`));
   // Keep the line count so positions after the block do not move.
   const lines = block.content.split("\n").length;
   while (glue.length < lines) glue.push("");

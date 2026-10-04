@@ -9,7 +9,7 @@ import { TraceMap, originalPositionFor } from "@jridgewell/trace-mapping";
 import vue from "@vitejs/plugin-vue";
 import gosfc from "@gosfc/vite";
 import { build, createServer } from "vite";
-import { createSSRApp } from "vue";
+import { createSSRApp, h } from "vue";
 import { renderToString } from "vue/server-renderer";
 
 const root = fileURLToPath(new URL("./fixtures/app/", import.meta.url));
@@ -84,6 +84,16 @@ test("dev server: SSR renders Go bindings and picks up edits without a restart",
     html = await render("/src/Summary.vue");
   }
   assert.match(html, /合計: 600/);
+});
+
+test("Props: attributes reach the Go block as a typed struct", async (t) => {
+  const server = await createServer({ root, configFile: false, logLevel: "silent", plugins: plugins(), appType: "custom", server: { middlewareMode: true, hmr: false } });
+  t.after(() => server.close());
+  const { default: Greeting } = await server.ssrLoadModule("/src/Greeting.vue");
+  const render = (attrs) => renderToString(createSSRApp({ render: () => h(Greeting, attrs) }));
+  assert.equal(await render({ name: "Go", times: 2, "html-note": "!" }), '<p class="greet">hi Go hi Go !</p>');
+  assert.equal(await render({ name: "ゴー", times: "1", loud: "" }), '<p class="greet">HI ゴー </p>');
+  assert.equal(await render({}), '<p class="greet"></p>');
 });
 
 test("go: imports from JavaScript compile the package in the importer's Go module", async (t) => {
