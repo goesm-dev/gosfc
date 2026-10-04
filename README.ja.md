@@ -86,6 +86,21 @@ export default { plugins: [gosfc(), vue()] };
 * import は Go の import だけです。`.vue`、`.ts`、`.go` ファイルの import はできません。
 * メソッドと generic 関数は Go package に置いてください。
 
+## JavaScript から Go を import する
+
+Go module の中にある `.js`、`.ts`、`.astro` の module は、`go:` specifier で Go package を直接 import できます。gosfc は import した側のファイルが属する Go module で goesm を使ってその package をコンパイルし、Vite が他の module と同じように bundle します。API は goesm のものです：export された関数と型があり、Go の文字列や slice は各 module が `$runtime` として re-export する runtime で変換します。
+
+```astro
+---
+// src/pages/[slug].astro
+import { Slugs, $runtime as rt } from "go:example.com/app/content";
+
+export function getStaticPaths() {
+  return rt.toArray(Slugs()).map((s) => ({ params: { slug: rt.toJSString(s) } }));
+}
+---
+```
+
 ## ベンチマーク
 
 同じ component を `<script setup lang="go">` と `<script setup lang="ts">` で書いて比べています（[bench/](bench)）。どちらも Vite 8 と `@vitejs/plugin-vue` で build し、Go 側は前に `@gosfc/vite` を置く以外は同じ設定です。

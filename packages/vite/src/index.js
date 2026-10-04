@@ -8,7 +8,9 @@
 //
 // It also serves the TypeScript tree goesm produced, as virtual modules whose
 // ids mirror goesm's output layout below gosfc:goesm/:
-//   go:<import path>      -> gosfc:goesm/<import path>.ts        (the glue's import)
+//   go:<import path>      -> gosfc:goesm/<import path>.ts        (the glue's import, or an
+//                            import from a .js / .ts / .astro module, which compiles
+//                            that package in the importing file's Go module)
 //   @goesm/runtime        -> gosfc:goesm/@goesm/runtime/index.ts (the bridge's import)
 //   "./x.ts", "../y.ts"   -> resolved relative to the importing virtual id
 //                            (goesm's modules import each other and the runtime this way)
@@ -20,13 +22,16 @@
 import { existsSync, readFileSync, statSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { compileSfc, mayHaveGoSetup, placeholderSfc, RUNTIME_ID } from "./compile.js";
+import { compilePackage, compileSfc, mayHaveGoSetup, placeholderSfc, RUNTIME_ID } from "./compile.js";
 
 const PREFIX = "gosfc:";
 const TREE_PREFIX = PREFIX + "goesm/";
 const GO_PREFIX = TREE_PREFIX;
 const RT_PREFIX = TREE_PREFIX + "@goesm/runtime/";
 const BRIDGE_ID = RUNTIME_ID;
+const GO_IMPORT = /["']go:/;
+// Specifiers of static and dynamic imports and re-exports: from "go:..." and import("go:...").
+const GO_IMPORTS = /\b(?:from|import)\s*\(?\s*(["'])go:([^"'\s]+)\1/g;
 const BRIDGE_FILE = fileURLToPath(new URL("../runtime/bridge.js", import.meta.url));
 
 /**
@@ -41,13 +46,17 @@ export default function gosfc() {
   const modules = new Map();
   /** environment name -> (virtual id -> code it last loaded) */
   const loaded = new Map();
-  /** .go file -> .vue files whose Go code depends on it */
+  /** .go file -> .vue files (and JS modules importing go:) whose Go code depends on it */
   const goDependents = new Map();
 
   /** .vue file -> last successful compilation, keyed by its source */
   const compiled = new Map();
 
   const setModule = (id, code, map) => modules.set(id, { code, map });
+  const addGoDependent = (goFile, id) => {
+    if (!goDependents.has(goFile)) goDependents.set(goFile, new Set());
+    goDependents.get(goFile).add(id);
+  };
 
   // A compilation is reused while the .vue source and the .go files it was
   // built from are unchanged.
@@ -58,6 +67,41 @@ export default function gosfc() {
     const result = await compileSfc(code, id, { root: config.root });
     compiled.set(id, { code, result, stamp: result ? goStamp(result.goFiles) : "" });
     return result;
+  }
+
+  /** import path + "\0" + importer -> stamp of the .go files it was compiled from */
+  const jsCompiled = new Map();
+  async function compileImport(importPath, importer, ctx) {
+    const key = importPath + "\0" + importer;
+    const c = jsCompiled.get(key);
+    if (c && c.stamp === goStamp(c.goFiles)) return;
+    const result = await compilePackage(importPath, importer);
+    jsCompiled.set(key, { goFiles: result.goFiles, stamp: goStamp(result.goFiles) });
+    for (const m of result.modules) setModule(GO_PREFIX + m.importPath + ".ts", m.code, m.map);
+    for (const f of result.runtime) setModule(RT_PREFIX + f.file, f.code, null);
+    for (const f of result.goFiles) {
+      addGoDependent(f, importer);
+      ctx.addWatchFile?.(f);
+    }
+    invalidateChanged(ctx, result.modules);
+  }
+
+  // Dev: if the Go side changed since this environment last loaded it,
+  // invalidate the generated modules so that the re-imported component
+  // gets fresh ones (Vite adds ?t= to their URLs). This is Vite's HMR;
+  // gosfc adds no runtime of its own.
+  function invalidateChanged(ctx, goModules) {
+    if (!server || !ctx.environment) return;
+    const seen = loaded.get(ctx.environment.name);
+    const ids = goModules.map((m) => GO_PREFIX + m.importPath + ".ts");
+    if (seen && ids.some((i) => seen.has(i) && seen.get(i) !== modules.get(i).code)) {
+      const graph = ctx.environment.moduleGraph;
+      const now = Date.now();
+      for (const i of ids) {
+        const mod = graph.getModuleById(i);
+        if (mod) graph.invalidateModule(mod, new Set(), now, true);
+      }
+    }
   }
 
   return {
@@ -99,12 +143,20 @@ export default function gosfc() {
       server = s;
     },
 
-    resolveId(source, importer) {
+    async resolveId(source, importer) {
       if (source === BRIDGE_ID) return BRIDGE_ID;
       if (source.startsWith("go:")) {
-        const id = GO_PREFIX + source.slice(3) + ".ts";
+        const importPath = source.slice(3);
+        const id = GO_PREFIX + importPath + ".ts";
+        // The glue of a .vue file imports the package its transform just
+        // compiled. Any other module (.js, .ts, .astro) gets the package
+        // compiled here, in the Go module of the importing file.
+        const file = importer?.split("?")[0];
+        if (file && !file.startsWith(PREFIX) && !file.startsWith("\0") && !file.endsWith(".vue")) {
+          await compileImport(importPath, file, this);
+        }
         if (!modules.has(id)) {
-          this.error(`gosfc: Go package ${source.slice(3)} was not compiled; Go packages are imported from <script setup lang="go">, not from JavaScript`);
+          this.error(`gosfc: Go package ${importPath} was not compiled; import it from <script setup lang="go"> or from a module inside a Go module`);
         }
         return id;
       }
@@ -128,6 +180,14 @@ export default function gosfc() {
     },
 
     async transform(code, id) {
+      const file = id.split("?")[0];
+      if (!file.endsWith(".vue") && !id.startsWith(PREFIX) && !id.startsWith("\0") && GO_IMPORT.test(code)) {
+        // A JS / TS / Astro module importing Go packages: compile them now,
+        // so that the .go files they come from are watched on behalf of this
+        // module (an edit then reloads it).
+        for (const m of code.matchAll(GO_IMPORTS)) await compileImport(m[2], file, this);
+        return null;
+      }
       if (!id.endsWith(".vue") || id.includes("?") || id.includes("\0")) return null;
       if (!mayHaveGoSetup(code)) return null;
       let result;
@@ -144,28 +204,11 @@ export default function gosfc() {
       for (const m of result.modules) setModule(GO_PREFIX + m.importPath + ".ts", m.code, m.map);
       for (const f of result.runtime) setModule(RT_PREFIX + f.file, f.code, null);
       for (const f of result.goFiles) {
-        if (!goDependents.has(f)) goDependents.set(f, new Set());
-        goDependents.get(f).add(id);
+        addGoDependent(f, id);
         // Rebuild (vite build --watch) and invalidate (dev) on .go changes.
         this.addWatchFile(f);
       }
-
-      // Dev: if the Go side changed since this environment last loaded it,
-      // invalidate the generated modules so that the re-imported component
-      // gets fresh ones (Vite adds ?t= to their URLs). This is Vite's HMR;
-      // gosfc adds no runtime of its own.
-      if (server && this.environment) {
-        const seen = loaded.get(this.environment.name);
-        const ids = result.modules.map((m) => GO_PREFIX + m.importPath + ".ts");
-        if (seen && ids.some((i) => seen.has(i) && seen.get(i) !== modules.get(i).code)) {
-          const graph = this.environment.moduleGraph;
-          const now = Date.now();
-          for (const i of ids) {
-            const mod = graph.getModuleById(i);
-            if (mod) graph.invalidateModule(mod, new Set(), now, true);
-          }
-        }
-      }
+      invalidateChanged(this, result.modules);
       return { code: result.code, map: result.map };
     },
 

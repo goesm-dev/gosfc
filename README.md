@@ -86,6 +86,21 @@ Components using `lang="ts"` or a plain `<script setup>` keep working alongside 
 * Only Go imports are allowed. You cannot import `.vue`, `.ts`, or `.go` files.
 * Put methods and generic functions in a Go package.
 
+## Importing Go from JavaScript
+
+A `.js`, `.ts` or `.astro` module inside a Go module can import a Go package directly with a `go:` specifier. gosfc compiles the package with goesm in the Go module of the importing file, and Vite bundles it like any other module. The API is goesm's: exported functions and types, with Go strings and slices converted through the runtime each module re-exports as `$runtime`.
+
+```astro
+---
+// src/pages/[slug].astro
+import { Slugs, $runtime as rt } from "go:example.com/app/content";
+
+export function getStaticPaths() {
+  return rt.toArray(Slugs()).map((s) => ({ params: { slug: rt.toJSString(s) } }));
+}
+---
+```
+
 ## Benchmark
 
 The same components written with `<script setup lang="go">` and with `<script setup lang="ts">` ([bench/](bench)), built with Vite 8 and `@vitejs/plugin-vue`. The Go side adds `@gosfc/vite` in front; nothing else differs.

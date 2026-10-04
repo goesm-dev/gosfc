@@ -4,7 +4,7 @@ import assert from "node:assert/strict";
 import { existsSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { after, before, test } from "node:test";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import { TraceMap, originalPositionFor } from "@jridgewell/trace-mapping";
 import vue from "@vitejs/plugin-vue";
 import gosfc from "@gosfc/vite";
@@ -84,6 +84,38 @@ test("dev server: SSR renders Go bindings and picks up edits without a restart",
     html = await render("/src/Summary.vue");
   }
   assert.match(html, /合計: 600/);
+});
+
+test("go: imports from JavaScript compile the package in the importer's Go module", async (t) => {
+  t.after(restoreAll);
+  const server = await createServer({ root, configFile: false, logLevel: "silent", plugins: plugins(), appType: "custom", server: { middlewareMode: true, hmr: false } });
+  t.after(() => server.close());
+  let mod = await server.ssrLoadModule("/src/total.js");
+  assert.equal(mod.total([[100, 2], [50, 1]]), 250);
+
+  edit(src("cart/pkg/price.go"), "item.Price * item.Quantity", "item.Price * item.Quantity * 2");
+  let got;
+  for (let i = 0; i < 50 && got !== 500; i++) {
+    await sleep(200);
+    mod = await server.ssrLoadModule("/src/total.js");
+    got = mod.total([[100, 2], [50, 1]]);
+  }
+  assert.equal(got, 500);
+  await restoreAll();
+
+  // Production: the package is bundled like any other module.
+  const outDir = path.join(root, "dist-js");
+  rmSync(outDir, { recursive: true, force: true });
+  t.after(() => rmSync(outDir, { recursive: true, force: true }));
+  await build({
+    root,
+    configFile: false,
+    logLevel: "silent",
+    plugins: plugins(),
+    build: { outDir, ssr: true, rollupOptions: { input: src("total.js") } },
+  });
+  const built = await import(pathToFileURL(path.join(outDir, "total.js")).href);
+  assert.equal(built.total([[100, 2], [50, 1]]), 250);
 });
 
 test("dev server: a Go panic's stack trace points at the .vue file", async (t) => {
