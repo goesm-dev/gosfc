@@ -51,7 +51,7 @@ pnpm install
 ```
 
 * `mise.toml` は `GOPRIVATE=github.com/goesm-dev` も設定します。goesm は private repository なので、取得には GitHub の認証も必要です（proxy.golang.org からは取得できません）。
-* ツールを最新に上げるときは `mise upgrade -b` を実行し、`pnpm test` が通ることを確認してから更新後の `mise.toml` を commit してください。
+* ツールを最新に上げるときは `mise upgrade --bump`（`-b`）を実行し、`pnpm test` が通ることを確認してから更新後の `mise.toml` を commit してください。
 * pnpm のバージョンは `mise.toml` だけで管理します。`package.json` に `packageManager` は書きません。
 * build script を実行してよい依存は `pnpm-workspace.yaml` の `allowBuilds` に列挙しています。
 
@@ -81,4 +81,4 @@ pnpm dev
 
 ## ライセンス
 
-gosfc は [MIT License](LICENSE) で公開されています。contribution は同じ MIT License の下で提供されたものとして扱います。
+gosfc は [MIT License](LICENSE) で公開されています。contribution は同じ MIT License の下で提供されたものとして扱います。npm package にも同梱するため、`packages/vite/LICENSE` と `packages/astro/LICENSE` はルートの `LICENSE` の写しにしています。
