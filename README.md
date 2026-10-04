@@ -80,9 +80,10 @@ Components using `lang="ts"` or a plain `<script setup>` keep working alongside 
 
 ## Development
 
-Prerequisites: Go (the toolchain selected by go.mod is downloaded automatically), Node.js 22, and pnpm. goesm is a private repository, so you need `GOPRIVATE=github.com/goesm-dev` and GitHub authentication.
+Go, Node.js, and pnpm are pinned to the versions in `mise.toml` with [mise](https://mise.jdx.dev/). goesm is a private repository, so you need GitHub authentication (`mise.toml` sets `GOPRIVATE`).
 
 ```sh
+mise install
 pnpm install
 pnpm test                      # go test ./... and tests/*.test.mjs
 cd examples/astro && pnpm build   # dist/index.html contains 「合計: 200」
@@ -90,3 +91,7 @@ cd examples/astro && pnpm dev
 ```
 
 The browser HMR test uses Chromium at `/opt/pw-browsers/chromium` (or the `CHROMIUM` environment variable) and is skipped if it is not found.
+
+## Contributing / License
+
+See [CONTRIBUTING.md](CONTRIBUTING.md) for how to contribute and for the design principles. gosfc is released under the [MIT License](LICENSE).
