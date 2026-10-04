@@ -6,8 +6,9 @@
 //
 // The components live in src/go and src/ts; both use the same Vite +
 // @vitejs/plugin-vue config, the Go side with @gosfc/vite in front. SSR
-// render times are measured in a fresh Node process per side and round, so
-// that one side's warm-up, heap growth and GC do not leak into the other's.
+// render times are measured in a fresh Node process per side, workload and
+// round, so that one measurement's warm-up, heap growth and GC do not leak
+// into another's.
 
 import { execFileSync } from "node:child_process";
 import { readdirSync, readFileSync, rmSync } from "node:fs";
@@ -41,13 +42,17 @@ async function renderTime(component, batches, perBatch) {
   return median(samples);
 }
 
-// Child process: render one side's SSR build and print the timings as JSON.
+// SSR workloads: exported component, batches, renders per batch.
+const workloads = { Summary: [15, 2000], Heavy: [31, 1] };
+
+// Child process: render one component of one side's SSR build and print its
+// HTML and time per render (ms) as JSON.
 if (process.argv[2] === "--render") {
-  const m = await import(pathToFileURL(process.argv[3]).href);
-  const html = { summary: await renderToString(createSSRApp(m.Summary)), heavy: await renderToString(createSSRApp(m.Heavy)) };
-  const summaryUs = (await renderTime(m.Summary, 15, 2000)) * 1000;
-  const heavyMs = await renderTime(m.Heavy, 31, 1);
-  process.stdout.write(JSON.stringify({ html, summaryUs, heavyMs }));
+  const [, , , bundle, name] = process.argv;
+  const component = (await import(pathToFileURL(bundle).href))[name];
+  const html = await renderToString(createSSRApp(component));
+  const ms = await renderTime(component, ...workloads[name]);
+  process.stdout.write(JSON.stringify({ html, ms }));
   process.exit(0);
 }
 
@@ -89,8 +94,8 @@ async function ssrBuild(lang) {
   return path.join(outDir, "ssr.js");
 }
 
-function renderInChild(bundle) {
-  return JSON.parse(execFileSync(process.execPath, [fileURLToPath(import.meta.url), "--render", bundle], { encoding: "utf8" }));
+function renderInChild(bundle, name) {
+  return JSON.parse(execFileSync(process.execPath, [fileURLToPath(import.meta.url), "--render", bundle, name], { encoding: "utf8" }));
 }
 
 const results = Object.fromEntries(langs.map((l) => [l, {}]));
@@ -111,29 +116,31 @@ for (const lang of langs) results[lang].buildMs = median(times[lang]);
 
 const bundles = {};
 for (const lang of langs) bundles[lang] = await ssrBuild(lang);
-const renders = Object.fromEntries(langs.map((l) => [l, []]));
-for (let i = 0; i < rounds; i++) {
-  // Alternate which side goes first.
-  for (const lang of i % 2 ? [...langs].reverse() : langs) renders[lang].push(renderInChild(bundles[lang]));
-}
-for (const lang of langs) {
-  results[lang].html = renders[lang][0].html;
-  results[lang].summaryUs = median(renders[lang].map((r) => r.summaryUs));
-  results[lang].heavyMs = median(renders[lang].map((r) => r.heavyMs));
+for (const lang of langs) results[lang].html = {};
+for (const name of Object.keys(workloads)) {
+  const renders = Object.fromEntries(langs.map((l) => [l, []]));
+  for (let i = 0; i < rounds; i++) {
+    // Alternate which side goes first.
+    for (const lang of i % 2 ? [...langs].reverse() : langs) renders[lang].push(renderInChild(bundles[lang], name));
+  }
+  for (const lang of langs) {
+    results[lang].html[name] = renders[lang][0].html;
+    results[lang][name] = median(renders[lang].map((r) => r.ms));
+  }
 }
 
 rmSync(path.join(root, "dist"), { recursive: true, force: true });
 
 const [go, ts] = [results.go, results.ts];
-if (go.html.summary !== ts.html.summary || go.html.heavy !== ts.html.heavy) {
+if (Object.keys(workloads).some((name) => go.html[name] !== ts.html[name])) {
   throw new Error(`Go and TypeScript components render differently: ${JSON.stringify([go.html, ts.html])}`);
 }
 const ratio = (a, b) => (a / b).toFixed(2) + "x";
-console.log(`Node ${process.version}, ${os.cpus()[0].model}, ${os.cpus().length} CPUs, median of ${runs} builds; SSR in ${rounds} fresh processes per side\n`);
+console.log(`Node ${process.version}, ${os.cpus()[0].model}, ${os.cpus().length} CPUs, median of ${runs} builds; SSR in ${rounds} fresh processes per side and component\n`);
 console.log("| | gosfc (`lang=\"go\"`) | Vue (`lang=\"ts\"`) | ratio |");
 console.log("|---|---:|---:|---:|");
 console.log(`| Client build time | ${go.buildMs.toFixed(0)} ms | ${ts.buildMs.toFixed(0)} ms | ${ratio(go.buildMs, ts.buildMs)} |`);
 console.log(`| Client JS (minified) | ${kb(go.raw)} | ${kb(ts.raw)} | ${ratio(go.raw, ts.raw)} |`);
 console.log(`| Client JS (gzip) | ${kb(go.gz)} | ${kb(ts.gz)} | ${ratio(go.gz, ts.gz)} |`);
-console.log(`| SSR render, small component | ${go.summaryUs.toFixed(1)} µs | ${ts.summaryUs.toFixed(1)} µs | ${ratio(go.summaryUs, ts.summaryUs)} |`);
-console.log(`| SSR render, 1,000,000 items | ${go.heavyMs.toFixed(1)} ms | ${ts.heavyMs.toFixed(1)} ms | ${ratio(go.heavyMs, ts.heavyMs)} |`);
+console.log(`| SSR render, small component | ${(go.Summary * 1000).toFixed(1)} µs | ${(ts.Summary * 1000).toFixed(1)} µs | ${ratio(go.Summary, ts.Summary)} |`);
+console.log(`| SSR render, 1,000,000 items | ${go.Heavy.toFixed(1)} ms | ${ts.Heavy.toFixed(1)} ms | ${ratio(go.Heavy, ts.Heavy)} |`);
