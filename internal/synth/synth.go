@@ -156,6 +156,10 @@ func Build(in Input) Output {
 		off := file.Offset(p)
 		if t == token.COMMENT {
 			if depth == 0 && len(cur) == 0 && isJSImport(lit) {
+				if _, dup := directives[len(items)]; dup {
+					diag(off, "only one //goesm:import may precede a declaration")
+					continue
+				}
 				directives[len(items)] = tok{off: off, end: off + len(lit), tok: t, lit: lit}
 			}
 			continue
@@ -184,6 +188,10 @@ func Build(in Input) Output {
 	}
 	if len(cur) > 0 {
 		items = append(items, item{cur})
+	}
+	if d, ok := directives[len(items)]; ok {
+		// Nothing follows the directive.
+		diag(d.off, "//goesm:import must precede a function without a body or a var declaration")
 	}
 
 	directive := func(b *strings.Builder, line, col int) {

@@ -1,6 +1,7 @@
 package synth
 
 import (
+	"fmt"
 	"go/ast"
 	"go/importer"
 	"go/parser"
@@ -238,5 +239,31 @@ z := 1
 	}
 	if got := strings.Join(names, " "); got != "Badge:var formatPrice:func label:var" {
 		t.Errorf("bindings = %s", got)
+	}
+}
+
+// TestJSImportMisplaced checks that a //goesm:import with no declaration
+// after it, or a second one before the same declaration, is reported
+// rather than dropped.
+func TestJSImportMisplaced(t *testing.T) {
+	src := `
+//goesm:import "./a.ts" a
+//goesm:import "./b.ts" b
+func b() int
+
+//goesm:import "./c.ts" c
+// a comment
+`
+	out := build(t, src)
+	var got []string
+	for _, d := range out.Diagnostics {
+		got = append(got, fmt.Sprintf("%d: %s", d.Line, d.Message))
+	}
+	want := []string{
+		"12: only one //goesm:import may precede a declaration",
+		"15: //goesm:import must precede a function without a body or a var declaration",
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("diagnostics = %q, want %q", got, want)
 	}
 }
