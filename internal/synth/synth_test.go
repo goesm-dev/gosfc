@@ -165,3 +165,78 @@ func names(bs []Binding) []string {
 	}
 	return out
 }
+
+// //goesm:import declarations are moved to package level with their
+// directive, where goesm reads them; they are bindings like any other.
+func TestJSImports(t *testing.T) {
+	src := `
+import "syscall/js"
+
+//goesm:import "./Badge.vue"
+var Badge js.Value
+
+//goesm:import "./format.ts" formatPrice
+func formatPrice(yen int) string
+
+label := formatPrice(120)
+
+//goesm:import "./x.ts" y
+z := 1
+`
+	out := build(t, src)
+	if len(out.Diagnostics) != 1 || out.Diagnostics[0].Line != 21 || !strings.Contains(out.Diagnostics[0].Message, "//goesm:import must precede") {
+		t.Errorf("diagnostics = %+v, want one at line 21", out.Diagnostics)
+	}
+	fset := token.NewFileSet()
+	f, err := parser.ParseFile(fset, "gen.go", out.Go, parser.ParseComments)
+	if err != nil {
+		t.Fatalf("synthetic file does not parse: %v\n%s", err, out.Go)
+	}
+	found := map[string]string{}
+	for _, d := range f.Decls {
+		var doc *ast.CommentGroup
+		var name string
+		switch d := d.(type) {
+		case *ast.FuncDecl:
+			if d.Body != nil {
+				continue
+			}
+			doc, name = d.Doc, d.Name.Name
+		case *ast.GenDecl:
+			if d.Tok != token.VAR {
+				continue
+			}
+			doc, name = d.Doc, d.Specs[0].(*ast.ValueSpec).Names[0].Name
+		default:
+			continue
+		}
+		if doc == nil {
+			continue
+		}
+		for _, c := range doc.List {
+			if strings.HasPrefix(c.Text, "//goesm:") {
+				found[name] = c.Text
+				found[name+"@"] = fset.Position(c.Pos()).String()
+				found[name+"#"] = fset.Position(d.Pos()).String()
+			}
+		}
+	}
+	want := map[string]string{
+		"Badge":        `//goesm:import "./Badge.vue"`,
+		"Badge@":       vue + ":13:1",
+		"Badge#":       vue + ":14:1",
+		"formatPrice":  `//goesm:import "./format.ts" formatPrice`,
+		"formatPrice@": vue + ":16:1",
+		"formatPrice#": vue + ":17:1",
+	}
+	if !reflect.DeepEqual(found, want) {
+		t.Errorf("package-level imports = %v, want %v\n%s", found, want, out.Go)
+	}
+	var names []string
+	for _, b := range out.Bindings {
+		names = append(names, b.Name+":"+b.Kind)
+	}
+	if got := strings.Join(names, " "); got != "Badge:var formatPrice:func label:var" {
+		t.Errorf("bindings = %s", got)
+	}
+}
