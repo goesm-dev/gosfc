@@ -63,7 +63,7 @@ export async function emitTS(opts) {
       const tsFile = line.trim();
       if (!tsFile.endsWith(".ts")) continue;
       const importPath = path.relative(outDir, tsFile).split(path.sep).join("/").replace(/\.ts$/, "");
-      const code = stripSourceMapComment(await readFile(tsFile, "utf8"));
+      const code = absoluteFileImports(stripSourceMapComment(await readFile(tsFile, "utf8")), tsFile, outDir);
       const map = JSON.parse(await readFile(tsFile + ".map", "utf8"));
       modules.push({ importPath, code, map });
     }
@@ -110,6 +110,23 @@ export function parseDiagnostics(stderr) {
     }
   }
   return out;
+}
+
+/**
+ * goesm writes the files that //goesm:import directives import (a .ts
+ * function, a .vue component) relative to the module's place in the output
+ * directory. The modules live in Vite's module graph under virtual ids, so
+ * those imports become absolute paths of the files.
+ * @param {string} code
+ * @param {string} tsFile
+ * @param {string} outDir
+ */
+function absoluteFileImports(code, tsFile, outDir) {
+  return code.replace(/^(import\b[^"\n]*from )"(\.\.?\/[^"\n]*)";$/gm, (line, head, spec) => {
+    const target = path.resolve(path.dirname(tsFile), spec);
+    if (target.startsWith(outDir + path.sep)) return line;
+    return `${head}${JSON.stringify(target.split(path.sep).join("/"))};`;
+  });
 }
 
 /** @param {string} code */

@@ -96,6 +96,22 @@ test("Props: attributes reach the Go block as a typed struct", async (t) => {
   assert.equal(await render({}), '<p class="greet"></p>');
 });
 
+test("//goesm:import: the Go block uses a Vue component and a TypeScript function", async (t) => {
+  const server = await createServer({ root, configFile: false, logLevel: "silent", plugins: plugins(), appType: "custom", server: { middlewareMode: true, hmr: false } });
+  t.after(() => server.close());
+  const want = '<p>¥12,800 <span class="badge">新着</span> ¥500</p>';
+  const { default: Shop } = await server.ssrLoadModule("/src/Shop.vue");
+  assert.equal(await renderToString(createSSRApp(Shop)), want);
+
+  // Production: the component and the function are bundled with the rest.
+  const outDir = path.join(root, "dist-shop");
+  rmSync(outDir, { recursive: true, force: true });
+  t.after(() => rmSync(outDir, { recursive: true, force: true }));
+  await build({ root, configFile: false, logLevel: "silent", plugins: plugins(), build: { outDir, ssr: true, rollupOptions: { input: src("Shop.vue") } } });
+  const built = await import(pathToFileURL(path.join(outDir, "Shop.js")).href);
+  assert.equal(await renderToString(createSSRApp(built.default)), want);
+});
+
 test("go: imports from JavaScript compile the package in the importer's Go module", async (t) => {
   t.after(restoreAll);
   const server = await createServer({ root, configFile: false, logLevel: "silent", plugins: plugins(), appType: "custom", server: { middlewareMode: true, hmr: false } });
