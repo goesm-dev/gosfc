@@ -2,8 +2,8 @@
 
 English | [日本語](ARCHITECTURE.ja.md)
 
-gosfc is a thin integration layer for treating the `<script setup lang="go">` of a Vue SFC as real Go.
-goesm compiles Go, the Vue tooling handles SFCs and templates, Vite / Rolldown handle the build, and Astro handles pages and SSR. gosfc only connects them.
+gosfc is a thin integration layer for treating the `<script setup lang="go">` of a Vue SFC, and the Go frontmatter (`---go`) and `<script lang="go">` of an `.astro` file, as real Go.
+goesm compiles Go, the Vue tooling handles SFCs and templates, Astro handles `.astro` templates, pages and SSR, and Vite / Rolldown handle the build. gosfc only connects them. The diagram below follows a `.vue` file; §9 describes `.astro` files.
 
 ## 1. Responsibility boundaries
 
@@ -29,7 +29,7 @@ Astro ─────────────── routing / SSR / SSG / island
 | Layer | Responsible for | Not responsible for |
 |---|---|---|
 | gosfc | Detecting the Go block in `.vue` and the Go frontmatter / `<script lang="go">` in `.astro`, building synthetic Go, invoking goesm, exposing template bindings, preserving positions, the Vite plugin, the Astro integration | Go parsing / type checking / module and package resolution / lowering, compiling templates and styles, bundling, SSR |
-| goesm | The Go package graph, Go Modules, parsing, type checking, Go semantics, lowering to TypeScript, TS→Go source maps | Anything about Vue / SFCs |
+| goesm | The Go package graph, Go Modules, parsing, type checking, Go semantics, lowering to TypeScript, TS→Go source maps | Anything about Vue / SFCs / Astro |
 | Vue tooling | SFC parsing, template compilation, scoped CSS, HMR decisions | Go |
 | Vite / Rolldown | Dev server, TS→JS, bundling, source map composition | Go, SFCs |
 | Astro | Pages, SSR, SSG, islands, `client:*` | Go, the contents of SFCs |
