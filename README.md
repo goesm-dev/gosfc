@@ -83,7 +83,7 @@ Components using `lang="ts"` or a plain `<script setup>` keep working alongside 
 
 * Like Vue's `<script setup>`, the top level runs once, top to bottom, per component instance. You can write `x := ...`, `var`, `const`, `type`, and `func F() {...}`.
 * Top-level variables, constants, and functions are available in the template. When the template calls a Go function (for example `@click="Increment"`), the rendered output follows the Go values.
-* `import` takes Go packages only. Vue components, TypeScript and JavaScript come in through goesm's [`//goesm:import`](https://github.com/goesm-dev/goesm/blob/main/docs/js-imports.md) directive, before a `var` (a component, a class, any value) or a function without a body (a function, called with automatic conversion of its arguments and result). Both are template bindings like the block's other names. Their types may use imported and built-in types, not types declared in the block, since they are declared at package level.
+* `import` takes Go packages only. Vue components, TypeScript and JavaScript come in through goesm's [`//goesm:import`](https://github.com/goesm-dev/goesm/blob/main/docs/js-imports.md) directive, before a `var` (a component, a class, any value) or a function without a body (a function, called with automatic conversion of its arguments and result). Both are template bindings like the block's other names. Their types may use imported and built-in types, not types declared in the block, since they are declared at package level. The directive needs goesm v0.0.1-beta.2 or later; with an older goesm in your go.mod, the declarations fail to compile as functions without bodies.
 
   ```vue
   <template>

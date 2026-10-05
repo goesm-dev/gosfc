@@ -83,7 +83,7 @@ export default { plugins: [gosfc(), vue()] };
 
 * トップレベルは Vue の `<script setup>` と同じくコンポーネントインスタンスごとに上から 1 回実行されます。`x := ...`、`var`、`const`、`type`、`func F() {...}` が書けます。
 * トップレベルの変数・定数・関数はテンプレートから参照できます。Go 関数をテンプレートから呼ぶ（`@click="Increment"` など）と、表示が Go の値に追従します。
-* `import` で取り込めるのは Go のパッケージだけです。Vue コンポーネント、TypeScript、JavaScript は goesm の [`//goesm:import`](https://github.com/goesm-dev/goesm/blob/main/docs/js-imports.ja.md) ディレクティブで取り込みます。コンポーネントやクラスなどの値は `var` の前に、関数は本体のない関数宣言の前にディレクティブを書きます。関数の引数と戻り値は自動で変換されます。どちらもブロックのほかの名前と同じくテンプレートから使えます。これらはパッケージレベルで宣言されるので、型にはインポートした型と組み込みの型を使え、ブロック内で宣言した型は使えません。
+* `import` で取り込めるのは Go のパッケージだけです。Vue コンポーネント、TypeScript、JavaScript は goesm の [`//goesm:import`](https://github.com/goesm-dev/goesm/blob/main/docs/js-imports.ja.md) ディレクティブで取り込みます。コンポーネントやクラスなどの値は `var` の前に、関数は本体のない関数宣言の前にディレクティブを書きます。関数の引数と戻り値は自動で変換されます。どちらもブロックのほかの名前と同じくテンプレートから使えます。これらはパッケージレベルで宣言されるので、型にはインポートした型と組み込みの型を使え、ブロック内で宣言した型は使えません。このディレクティブには goesm v0.0.1-beta.2 以降が必要です。go.mod の goesm がそれより古いと、宣言は本体のない関数としてコンパイルエラーになります。
 
   ```vue
   <template>
