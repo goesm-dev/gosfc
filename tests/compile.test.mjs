@@ -1,11 +1,11 @@
 // Compiling single components with the gosfc core (no Vite): bindings,
-// coexistence rules and diagnostics at .vue positions.
+// coexistence rules and diagnostics at .vue and .astro positions.
 import assert from "node:assert/strict";
 import { rmSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { after, test } from "node:test";
 import { fileURLToPath } from "node:url";
-import { compileSfc } from "@gosfc/vite";
+import { compileAstro, compileSfc } from "@gosfc/vite";
 
 const app = fileURLToPath(new URL("./fixtures/app/", import.meta.url));
 const tmp = [];
@@ -135,4 +135,46 @@ test("gosfc-level errors: methods, JS reserved words, <script lang=go>", async (
   const plain = `<script lang="go">\nx := 1\n</script>\n`;
   e = await compileError(component("TmpPlain.vue", plain), plain);
   assert.match(e.message, /<script lang="go"> is not supported/);
+});
+
+test(".astro: a ---go frontmatter becomes TypeScript, <script lang=go> a module import", async () => {
+  const source = `---go
+import (
+	cart "example.com/fixture/src/cart/pkg"
+	Card "./Card.vue"
+	_ "./global.css"
+)
+
+type Props struct{ Title string }
+
+title := props.Title
+total := cart.Total([]cart.Item{{Price: 3, Quantity: 2}})
+---
+
+<Card>{title}: {total}</Card>
+<script lang="go">
+println("hi")
+</script>
+`;
+  const file = component("TmpPage.astro", source);
+  const r = await compileAstro(source, file, { root: app });
+  const fm = r.code.slice(0, r.code.indexOf("\n---\n") + 5);
+  assert.match(fm, /^---\n/);
+  assert.match(fm, /^import Card from "\.\/Card\.vue";$/m);
+  assert.match(fm, /^import "\.\/global\.css";$/m);
+  assert.match(fm, /import \{ GosfcSetup as __gosfc_setup, GosfcProps as __gosfc_props \} from "go:example\.com\/fixture\/src\/_gosfc\/tmppage_astro";/);
+  assert.match(fm, /const __gosfc = await __gosfc_run\(__gosfc_setup, __gosfc_props, Astro\.props\);/);
+  assert.match(fm, /const title = __gosfc\("title"\);/);
+  assert.match(fm, /const total = __gosfc\("total"\);/);
+  assert.equal(r.code.split("\n").length, source.split("\n").length, "line count changed");
+  assert.ok(r.code.includes("\n---\n\n<Card>{title}: {total}</Card>\n"), "template changed");
+  assert.match(r.code, /<script>import "gosfc:astro-script\/0\/.*\/src\/TmpPage\.astro\.js";\n\n<\/script>/);
+
+  // Errors are reported at .astro positions.
+  const bad = `---go\nimport Card "./Card.vue"\n\nn := 1\nvar s string = n\nCard := 2\n---\n`;
+  const e = await compileAstro(bad, component("TmpBad.astro", bad), { root: app }).then(() => assert.fail("expected an error"), (e) => e);
+  assert.match(e.message, /src\/TmpBad\.astro:5:16: cannot use n .*\[go\/types\]/);
+  const clash = `---go\nimport Card "./Card.vue"\n\nCard := 2\n---\n`;
+  const e2 = await compileAstro(clash, component("TmpClash.astro", clash), { root: app }).then(() => assert.fail("expected an error"), (e) => e);
+  assert.match(e2.message, /src\/TmpClash\.astro:4:1: Card is also the name of the import of "\.\/Card\.vue"/);
 });
