@@ -2,8 +2,8 @@
 
 [English](ARCHITECTURE.md) | 日本語
 
-gosfc は、Vue SFC の `<script setup lang="go">` を本物の Go として扱うための薄い統合レイヤーです。
-Go のコンパイルは goesm、SFC とテンプレートは Vue tooling、ビルドは Vite / Rolldown、ページと SSR は Astro が担当します。gosfc はそれらをつなぐことだけをします。
+gosfc は、Vue SFC の `<script setup lang="go">` と、`.astro` ファイルの Go のフロントマター（`---go`）と `<script lang="go">` を本物の Go として扱うための薄い統合レイヤーです。
+Go のコンパイルは goesm、SFC とテンプレートは Vue tooling、`.astro` のテンプレートとページと SSR は Astro、ビルドは Vite / Rolldown が担当します。gosfc はそれらをつなぐことだけをします。下の図は `.vue` ファイルの流れで、`.astro` ファイルは §9 で説明します。
 
 ## 1. 責務境界
 
@@ -29,7 +29,7 @@ Astro ─────────────── routing / SSR / SSG / island
 | 層 | 担当すること | 担当しないこと |
 |---|---|---|
 | gosfc | `.vue` の Go ブロックと `.astro` の Go のフロントマター・`<script lang="go">` の検出、synthetic Go の構築、goesm 呼び出し、テンプレートバインディングの公開、位置情報の維持、Vite プラグイン、Astro インテグレーション | Go のパース / 型検査 / モジュール・パッケージ解決 / lowering、テンプレート・スタイルのコンパイル、バンドル、SSR |
-| goesm | Go パッケージグラフ、Go Modules、構文解析、型検査、Go 意味論、TypeScript への lowering、TS→Go のソースマップ | Vue / SFC のこと |
+| goesm | Go パッケージグラフ、Go Modules、構文解析、型検査、Go 意味論、TypeScript への lowering、TS→Go のソースマップ | Vue / SFC / Astro のこと |
 | Vue tooling | SFC のパース、テンプレートのコンパイル、scoped CSS、HMR の判定 | Go |
 | Vite / Rolldown | 開発サーバー、TS→JS、バンドル、ソースマップの合成 | Go、SFC |
 | Astro | ページ、SSR、SSG、アイランド、`client:*` | Go、SFC の中身 |
