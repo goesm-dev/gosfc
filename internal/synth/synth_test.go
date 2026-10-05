@@ -167,6 +167,156 @@ func names(bs []Binding) []string {
 	return out
 }
 
+// //goesm:import declarations are moved to package level with their
+// directive, where goesm reads them; they are bindings like any other.
+func TestGoesmImports(t *testing.T) {
+	src := `
+import "syscall/js"
+
+//goesm:import "./Badge.vue"
+var Badge js.Value
+
+//goesm:import "./format.ts" formatPrice
+func formatPrice(yen int) string
+
+label := formatPrice(120)
+
+//goesm:import "./x.ts" y
+z := 1
+`
+	out := build(t, src)
+	if len(out.Diagnostics) != 1 || out.Diagnostics[0].Line != 21 || !strings.Contains(out.Diagnostics[0].Message, "//goesm:import must precede") {
+		t.Errorf("diagnostics = %+v, want one at line 21", out.Diagnostics)
+	}
+	fset := token.NewFileSet()
+	f, err := parser.ParseFile(fset, "gen.go", out.Go, parser.ParseComments)
+	if err != nil {
+		t.Fatalf("synthetic file does not parse: %v\n%s", err, out.Go)
+	}
+	found := map[string]string{}
+	for _, d := range f.Decls {
+		var doc *ast.CommentGroup
+		var name string
+		switch d := d.(type) {
+		case *ast.FuncDecl:
+			if d.Body != nil {
+				continue
+			}
+			doc, name = d.Doc, d.Name.Name
+		case *ast.GenDecl:
+			if d.Tok != token.VAR {
+				continue
+			}
+			doc, name = d.Doc, d.Specs[0].(*ast.ValueSpec).Names[0].Name
+		default:
+			continue
+		}
+		if doc == nil {
+			continue
+		}
+		for _, c := range doc.List {
+			if strings.HasPrefix(c.Text, "//goesm:") {
+				found[name] = c.Text
+				found[name+"@"] = fset.Position(c.Pos()).String()
+				found[name+"#"] = fset.Position(d.Pos()).String()
+			}
+		}
+	}
+	want := map[string]string{
+		"Badge":        `//goesm:import "./Badge.vue"`,
+		"Badge@":       vue + ":13:1",
+		"Badge#":       vue + ":14:1",
+		"formatPrice":  `//goesm:import "./format.ts" formatPrice`,
+		"formatPrice@": vue + ":16:1",
+		"formatPrice#": vue + ":17:1",
+	}
+	if !reflect.DeepEqual(found, want) {
+		t.Errorf("package-level imports = %v, want %v\n%s", found, want, out.Go)
+	}
+	var names []string
+	for _, b := range out.Bindings {
+		names = append(names, b.Name+":"+b.Kind)
+	}
+	if got := strings.Join(names, " "); got != "Badge:var formatPrice:func label:var" {
+		t.Errorf("bindings = %s", got)
+	}
+}
+
+// TestGoesmImportMisplaced checks that a //goesm:import with no declaration
+// after it, or a second one before the same declaration, is reported
+// rather than dropped.
+func TestGoesmImportMisplaced(t *testing.T) {
+	src := `
+//goesm:import "./a.ts" a
+//goesm:import "./b.ts" b
+func b() int
+
+//goesm:import "./c.ts" c
+// a comment
+`
+	out := build(t, src)
+	var got []string
+	for _, d := range out.Diagnostics {
+		got = append(got, fmt.Sprintf("%d: %s", d.Line, d.Message))
+	}
+	want := []string{
+		"12: only one //goesm:import may precede a declaration",
+		"15: //goesm:import must precede a function without a body or a var declaration",
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("diagnostics = %q, want %q", got, want)
+	}
+}
+
+// TestGoesmImportPositions checks that a directive and an indented declaration
+// with a comment between them (holding a blank line) keep their own .vue lines and columns, and
+// that a blank line after a directive is reported.
+func TestGoesmImportPositions(t *testing.T) {
+	src := `
+import "syscall/js"
+
+//goesm:import "./a.ts" a
+/* a is the a export.
+
+   It is a value. */
+    var A js.Value
+
+//goesm:import "./b.ts" b
+
+var B js.Value
+`
+	out := build(t, src)
+	if len(out.Diagnostics) != 1 || out.Diagnostics[0].Line != 19 || !strings.Contains(out.Diagnostics[0].Message, "without a blank line") {
+		t.Errorf("diagnostics = %+v, want one about the blank line at line 19", out.Diagnostics)
+	}
+	fset := token.NewFileSet()
+	f, err := parser.ParseFile(fset, "gen.go", out.Go, parser.ParseComments)
+	if err != nil {
+		t.Fatalf("synthetic file does not parse: %v\n%s", err, out.Go)
+	}
+	for _, d := range f.Decls {
+		g, ok := d.(*ast.GenDecl)
+		if !ok || g.Tok != token.VAR || g.Specs[0].(*ast.ValueSpec).Names[0].Name != "A" {
+			continue
+		}
+		var texts []string
+		for _, c := range g.Doc.List {
+			if !strings.HasPrefix(c.Text, "//line ") {
+				texts = append(texts, fset.Position(c.Pos()).String()+" "+c.Text)
+			}
+		}
+		want := []string{vue + `:13:1 //goesm:import "./a.ts" a`, vue + ":14:1 /* a is the a export.\n\n   It is a value. */"}
+		if !reflect.DeepEqual(texts, want) {
+			t.Errorf("doc of A = %q, want %q", texts, want)
+		}
+		if got := fset.Position(g.Pos()).String(); got != vue+":17:5" {
+			t.Errorf("declaration at %s, want %s:17:5", got, vue)
+		}
+		return
+	}
+	t.Errorf("no var A in\n%s", out.Go)
+}
+
 func TestJSImports(t *testing.T) {
 	src := `
 import Card "./Card.vue"
