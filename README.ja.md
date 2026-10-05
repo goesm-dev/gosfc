@@ -10,7 +10,7 @@
 [![Astro 7](https://img.shields.io/badge/Astro-7-BC52EE?logo=astro&logoColor=white)](https://astro.build/)
 [![goesm](https://img.shields.io/badge/compiled%20by-goesm-00ADD8)](https://github.com/goesm-dev/goesm)
 
-Vue Single File Component の `<script setup>` で本物の Go を使うための統合レイヤーです。
+Vue Single File Component の `<script setup>` と、`.astro` ファイルのフロントマターと `<script>` で本物の Go を使うための統合レイヤーです。
 
 ```vue
 <template>
@@ -33,7 +33,7 @@ total := cart.Total(items)
 </script>
 ```
 
-`.go` は普通の Go パッケージ、インポートは普通の Go のインポートです。Go のコンパイルは [goesm](https://github.com/goesm-dev/goesm)、SFC とテンプレートは Vue tooling、ビルドは Vite、ページと SSR は Astro が担当します。設計は [ARCHITECTURE.ja.md](ARCHITECTURE.ja.md) を見てください。
+`.go` は普通の Go パッケージ、インポートは普通の Go のインポートです。Go のコンパイルは [goesm](https://github.com/goesm-dev/goesm)、SFC とテンプレートは Vue tooling、`.astro` のテンプレートは Astro、ビルドは Vite、ページと SSR は Astro が担当します。設計は [ARCHITECTURE.ja.md](ARCHITECTURE.ja.md) を見てください。
 
 **状態：PoC。** 未実装の項目は ARCHITECTURE.ja.md の「未実装・未決事項」にあります。
 
@@ -68,6 +68,8 @@ total := cart.Total(items)
    <Summary />
    ```
 
+   `.astro` ファイルも Go で書けます。書き方は「[.astro ファイルで Go を使う](#astro-ファイルで-go-を使う)」で説明します。
+
 Vite だけで使う場合は `@vitejs/plugin-vue` の前に `@gosfc/vite` を置きます。
 
 ```js
@@ -83,7 +85,7 @@ export default { plugins: [gosfc(), vue()] };
 
 * トップレベルは Vue の `<script setup>` と同じくコンポーネントインスタンスごとに上から 1 回実行されます。`x := ...`、`var`、`const`、`type`、`func F() {...}` が書けます。
 * トップレベルの変数・定数・関数はテンプレートから参照できます。Go 関数をテンプレートから呼ぶ（`@click="Increment"` など）と、表示が Go の値に追従します。
-* インポートは Go のインポートだけです。`.vue`、`.ts`、`.go` ファイルのインポートはできません。
+* インポートは Go のインポートだけです。`.vue`、`.ts`、`.go` ファイルのインポートはできません。`.astro` ファイルの Go のフロントマターは JavaScript のモジュールもインポートできます。
 * メソッドとジェネリック関数は Go パッケージに置いてください。
 * props を受け取るには `type Props struct {...}` を宣言します。ブロックの中でその型の `props` 変数が使えます。フィールド `Route` は属性 `route`（json タグがあればその名前、または kebab-case の形）から読み、フィールドの型（string、bool、整数、浮動小数点数）に変換します。props はインスタンスの setup 時に 1 回だけ読み、ルート要素にはフォールスルーしません。
 
@@ -98,6 +100,69 @@ export default { plugins: [gosfc(), vue()] };
   heading := strings.ToUpper(props.Title)
   </script>
   ```
+
+## .astro ファイルで Go を使う
+
+フロントマターを `---` ではなく `---go` で始めると、その中身は Go になります。規則は `.vue` の Go ブロックと同じです。トップレベルはレンダリングごとに 1 回実行されます。静的ビルドではビルド時、SSR ではリクエストごとの実行です。トップレベルの変数・定数・関数はテンプレートから参照できます。
+
+```astro
+---go
+import (
+	"strconv"
+
+	cart "example.com/app/src/features/cart/pkg"
+	Line "../features/cart/Line.astro"
+	Summary "../features/cart/Summary.vue"
+)
+
+items := []cart.Item{
+	{Price: 120, Quantity: 3},
+	{Price: 80, Quantity: 1},
+}
+total := cart.Total(items)
+
+func Yen(n int) string {
+	return "¥" + strconv.Itoa(n)
+}
+---
+
+<Line label="りんご" price={120} quantity={3} />
+<p>合計: {Yen(total)}、{items.length} 品目</p>
+<Summary />
+```
+
+* コンポーネントやスタイル、npm パッケージなどの JavaScript のモジュールは Go のインポート構文でインポートします。`import Card "./Card.vue"` は `import Card from "./Card.vue"` と同じ意味になり、`import _ "./global.css"` は副作用のためのインポートになります。インポートパスが `./`、`../`、`/`、`@` で始まるか `:` を含む場合は JavaScript のモジュールとして扱います。`astro:assets` も JavaScript のモジュールです。それ以外のパスは Go のパッケージです。
+* `type Props struct {...}` を宣言すると `Astro.props` を受け取れます。フィールド名と props の名前の対応は `.vue` の Go ブロックと同じで、フィールド `Label` は `label` から読みます。
+* テンプレートに渡る値は JavaScript 向けに変換されます。文字列は JavaScript の文字列、スライスは配列、struct はオブジェクトになります。テンプレートから Go の関数を呼ぶこともできます。
+* チャネルや `time.Sleep` などで Go のコードがブロックする場合、フロントマターはその完了を待ちます。
+
+テンプレートの中の `<script lang="go">` は、ブラウザでページごとに 1 回実行される Go です。Astro が処理する通常の `<script>` と同じように Astro がバンドルし、コンポーネントを何度使ってもページに含まれるのは 1 回だけです。トップレベルの名前はテンプレートから参照できません。DOM の操作には `syscall/js` を使います。
+
+```astro
+<button id="counter">0</button>
+
+<script lang="go">
+import (
+	"strconv"
+	"syscall/js"
+)
+
+count := 0
+button := js.Global().Get("document").Call("getElementById", "counter")
+button.Call("addEventListener", "click", js.FuncOf(func(this js.Value, args []js.Value) any {
+	count++
+	button.Set("textContent", strconv.Itoa(count))
+	return nil
+}))
+</script>
+```
+
+制限は次のとおりです。
+
+* Go のフロントマターは何もエクスポートできません。`getStaticPaths` などのエクスポートには TypeScript のフロントマターが必要です。TypeScript のフロントマターからも、次の節で説明する `go:` specifier で Go をインポートできます。
+* Go のコードから使える `Astro` グローバルの情報は props だけです。`Astro.url`、`Astro.cookies`、リダイレクトなどを使うには TypeScript のフロントマターを書きます。
+* Go のインポート構文で書けるのは default インポートと副作用のためのインポートだけです。JavaScript のモジュールの名前付きエクスポートを使うには、それを default エクスポートとして再エクスポートする小さなモジュールを作り、そのモジュールをインポートします。
+* `<script lang="go">` には他の属性を付けられません。`is:inline` や `define:vars` も使えません。
 
 ## JavaScript から Go をインポートする
 
@@ -146,7 +211,7 @@ mise install
 pnpm install
 pnpm test                      # go test ./... と tests/*.test.mjs
 pnpm bench                     # bench/run.mjs：ベンチマークの表を出力し、bench/results-*.svg を書き直す
-cd examples/astro && pnpm build   # dist/index.html に「合計: 200」
+cd examples/astro && pnpm build   # dist/index.html に「合計: 200」、dist/go/index.html は src/pages/go.astro
 cd examples/astro && pnpm dev
 ```
 
