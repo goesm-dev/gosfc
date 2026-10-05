@@ -1,0 +1,52 @@
+---go
+import (
+	"strconv"
+	"strings"
+
+	cart "example.com/app/src/features/cart/pkg"
+	Line "../features/cart/Line.astro"
+	Summary "../features/cart/Summary.vue"
+)
+
+items := []cart.Item{
+	{Price: 120, Quantity: 3},
+	{Price: 80, Quantity: 1},
+}
+total := cart.Total(items)
+title := strings.ToUpper("go frontmatter")
+
+func Yen(n int) string {
+	return "¥" + strconv.Itoa(n)
+}
+---
+
+<html lang="ja">
+  <head>
+    <meta charset="utf-8" />
+    <title>{title}</title>
+  </head>
+  <body>
+    <h1>{title}</h1>
+    <ul>
+      <Line label="りんご" price={120} quantity={3} />
+      <Line label="みかん" price="80" quantity="1" />
+    </ul>
+    <p class="total">合計: {Yen(total)} ({items.length} 品目)</p>
+    <Summary />
+    <button id="go-counter" type="button">0</button>
+    <script lang="go">
+import (
+	"strconv"
+	"syscall/js"
+)
+
+count := 0
+button := js.Global().Get("document").Call("getElementById", "go-counter")
+button.Call("addEventListener", "click", js.FuncOf(func(this js.Value, args []js.Value) any {
+	count++
+	button.Set("textContent", strconv.Itoa(count))
+	return nil
+}))
+    </script>
+  </body>
+</html>
