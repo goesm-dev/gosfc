@@ -1,58 +1,60 @@
 # gosfc architecture
 
-gosfc は、Vue SFC の `<script setup lang="go">` を本物の Go として扱うための薄い統合レイヤーです。
-Go のコンパイルは goesm、SFC と template は Vue tooling、build は Vite / Rolldown、ページと SSR は Astro が担当します。gosfc はそれらをつなぐことだけをします。
+English | [日本語](ARCHITECTURE.ja.md)
 
-## 1. 責務境界
+gosfc is a thin integration layer for treating the `<script setup lang="go">` of a Vue SFC as real Go.
+goesm compiles Go, the Vue tooling handles SFCs and templates, Vite / Rolldown handle the build, and Astro handles pages and SSR. gosfc only connects them.
+
+## 1. Responsibility boundaries
 
 ```
 Vue SFC (.vue)
-  │  @vue/compiler-sfc の parse（Vue tooling）
+  │  parse with @vue/compiler-sfc (Vue tooling)
   ▼
-gosfc ─────────────── <script setup lang="go"> を見つけ、synthetic Go を作り、
-  │                    goesm の出力を Vue が扱える <script setup> に接続する
+gosfc ─────────────── finds <script setup lang="go">, builds synthetic Go,
+  │                    and connects goesm's output to a <script setup> Vue can handle
   ▼
-goesm ─────────────── Go toolchain（go list / go/parser / go/types）で解決・型検査し、
-  │                    Go の意味論を TypeScript に lowering する
+goesm ─────────────── resolves and type-checks with the Go toolchain (go list / go/parser / go/types),
+  │                    and lowers Go semantics to TypeScript
   ▼
 TypeScript (ESM) + source map
   │
   ▼
-Vue / Vite ────────── @vitejs/plugin-vue が template / style / HMR、Vite が TS 変換、
-  │                    Rolldown が bundle
+Vue / Vite ────────── @vitejs/plugin-vue handles template / style / HMR, Vite transforms TS,
+  │                    Rolldown bundles
   ▼
 Astro ─────────────── routing / SSR / SSG / islands / client:* / HTML
 ```
 
-| 層 | 担当すること | 担当しないこと |
+| Layer | Responsible for | Not responsible for |
 |---|---|---|
-| gosfc | `.vue` の Go block の検出、synthetic Go の構築、goesm 呼び出し、template binding の公開、位置情報の維持、Vite plugin、Astro integration | Go の parse / 型検査 / module・package 解決 / lowering、template・style のコンパイル、bundle、SSR |
-| goesm | Go package graph、Go Modules、構文解析、型検査、Go 意味論、TypeScript への lowering、TS→Go の source map | Vue / SFC のこと |
-| Vue tooling | SFC parse、template compile、scoped CSS、HMR の判定 | Go |
-| Vite / Rolldown | 開発サーバー、TS→JS、bundle、source map の合成 | Go、SFC |
-| Astro | ページ、SSR、SSG、islands、`client:*` | Go、SFC の中身 |
+| gosfc | Detecting the Go block in `.vue`, building synthetic Go, invoking goesm, exposing template bindings, preserving positions, the Vite plugin, the Astro integration | Go parsing / type checking / module and package resolution / lowering, compiling templates and styles, bundling, SSR |
+| goesm | The Go package graph, Go Modules, parsing, type checking, Go semantics, lowering to TypeScript, TS→Go source maps | Anything about Vue / SFCs |
+| Vue tooling | SFC parsing, template compilation, scoped CSS, HMR decisions | Go |
+| Vite / Rolldown | Dev server, TS→JS, bundling, source map composition | Go, SFCs |
+| Astro | Pages, SSR, SSG, islands, `client:*` | Go, the contents of SFCs |
 
-## 2. リポジトリ構成
+## 2. Repository layout
 
 ```
-cmd/gosfc/          Go 側の CLI（`gosfc synth`）。アプリの go.mod に tool として入る
-internal/synth/     <script setup lang="go"> → synthetic Go（go/scanner のみ使用）
-packages/vite/      @gosfc/vite: Vite plugin。src/compile.js が SFC 変換の中心、
-                    src/goesm.js が goesm との唯一の境界、runtime/bridge.js が template binding
-packages/astro/     @gosfc/astro: @astrojs/vue + @gosfc/vite を設定するだけの integration
-examples/astro/     PoC（Astro → Vue → gosfc → goesm → Vite）
-tests/              Node のテスト（Astro build、Vite build / SSR / HMR、診断）と fixture
+cmd/gosfc/          The Go-side CLI (`gosfc synth`). Added to the app's go.mod as a tool
+internal/synth/     <script setup lang="go"> → synthetic Go (uses only go/scanner)
+packages/vite/      @gosfc/vite: the Vite plugin. src/compile.js is the core of the SFC transform,
+                    src/goesm.js is the only boundary with goesm, runtime/bridge.js handles template bindings
+packages/astro/     @gosfc/astro: an integration that only configures @astrojs/vue + @gosfc/vite
+examples/astro/     The PoC (Astro → Vue → gosfc → goesm → Vite)
+tests/              Node tests (Astro build, Vite build / SSR / HMR, diagnostics) and fixtures
 ```
 
-`core` を別 package にはしていません。今のところ利用者は Vite plugin だけなので、`packages/vite/src/compile.js` が core の役割を持ちます。formatter や language server が同じ処理を必要とした時点で切り出します。
+There is no separate `core` package. For now the Vite plugin is the only consumer, so `packages/vite/src/compile.js` plays the role of the core. It will be split out once a formatter or language server needs the same processing.
 
-## 3. 処理の流れ
+## 3. Processing flow
 
-1. `@gosfc/vite`（`enforce: "pre"`）は `.vue` の main request のうち `<script setup lang="go">` を含むものだけを変換します。それ以外の `.vue`（`lang="ts"`、素の `<script setup>`）には触れず、`@vitejs/plugin-vue` がそのまま処理します。
-2. `@vue/compiler-sfc` の `parse` で descriptor を得ます。Vue parser は自作しません。
-3. Go block を `go tool gosfc synth` に渡し、synthetic Go とトップレベル binding の一覧を得ます（§4）。
-4. synthetic Go を `go tool goesm emit-ts -overlay` に渡します（§5）。成功すれば package ごとの TypeScript と source map、失敗すれば `.vue` 位置の診断が返ります。
-5. Go block だけを次の `<script setup lang="ts">` に置き換えます。template、`<style>`、`<style scoped>`、素の `<script>` は 1 byte も変えません。行数も保つので、後ろにある block の位置はずれません。
+1. `@gosfc/vite` (`enforce: "pre"`) transforms only those main requests for `.vue` files that contain `<script setup lang="go">`. Other `.vue` files (`lang="ts"`, a plain `<script setup>`) are left untouched and processed by `@vitejs/plugin-vue` as usual.
+2. The descriptor is obtained with `parse` from `@vue/compiler-sfc`. gosfc does not have its own Vue parser.
+3. The Go block is passed to `go tool gosfc synth`, which returns the synthetic Go and the list of top-level bindings (§4).
+4. The synthetic Go is passed to `go tool goesm emit-ts -overlay` (§5). On success it returns TypeScript and a source map per package; on failure it returns diagnostics at `.vue` positions.
+5. Only the Go block is replaced with the following `<script setup lang="ts">`. The template, `<style>`, `<style scoped>`, and a plain `<script>` are not changed by a single byte. The line count is preserved too, so the positions of later blocks do not shift.
 
    ```ts
    import { GosfcSetup as __gosfc_setup } from "go:example.com/app/src/features/cart/_gosfc/summary_vue";
@@ -62,12 +64,12 @@ tests/              Node のテスト（Astro build、Vite build / SSR / HMR、�
    const total = __gosfc.binding("total");
    ```
 
-6. 以降は普通の Vue SFC として `@vitejs/plugin-vue` が template / style をコンパイルします。`go:` import は plugin が goesm の出力（仮想 module、id は `gosfc:goesm/<import path>.<hash>.ts`、runtime は `gosfc:goesm/@goesm/runtime/*.ts`）に解決し、TypeScript は Vite 自身の変換に任せます。コンポーネント（と `go:` を import する JS module）はそれぞれ別の goesm プログラムで、package の出力はプログラム全体に依存します（ある関数値が一方では async、他方では同期になる、など）。そのため id の hash は module のコードと、それが import する package の id から作り、goesm の相対 import（`./x.ts`）はその id に書き換えます。コードが一致する package は 1 つの module（と bundler の chunk）を共有し、一致しないものは別々の module になります。runtime はどのプログラムでも同じなので普通の id のままです。
-7. `.vue` 以外の module（`.js`、`.ts`、`.astro`）が `go:<import path>` を import している場合は、その module の transform で、import したファイルが属する Go module を基準に `goesm emit-ts <import path>` を実行し、同じ仮想ツリーに登録します。`.go` ファイルはその module の watch 対象になり、編集すると module が読み直されます。
+6. From here on, `@vitejs/plugin-vue` compiles the template / style as for an ordinary Vue SFC. The plugin resolves `go:` imports to goesm's output (virtual modules with ids `gosfc:goesm/<import path>.<hash>.ts`, and `gosfc:goesm/@goesm/runtime/*.ts` for the runtime), and leaves TypeScript to Vite's own transform. Each component (and each JS module that imports `go:`) is a separate goesm program, and a package's output depends on the whole program (for example, a function value may be async in one program and synchronous in another). The hash in the id is therefore computed from the module's code and the ids of the packages it imports, and goesm's relative imports (`./x.ts`) are rewritten to those ids. Packages whose code matches share one module (and one bundler chunk); those that differ become separate modules. The runtime is the same in every program, so it keeps a plain id.
+7. When a module other than `.vue` (`.js`, `.ts`, `.astro`) imports `go:<import path>`, that module's transform runs `goesm emit-ts <import path>` relative to the Go module the importing file belongs to, and registers the result in the same virtual tree. The `.go` files become watched files of that module, and editing them reloads the module.
 
-## 4. synthetic Go
+## 4. Synthetic Go
 
-`<script setup lang="go">` は Go のソースファイルではなく、Vue の `<script setup>` と同じく「component instance ごとに 1 回実行される本体」です。gosfc はこれを普通の Go ファイルに組み直します。
+`<script setup lang="go">` is not a Go source file; like Vue's `<script setup>`, it is "a body that runs once per component instance". gosfc reassembles it into an ordinary Go file.
 
 ```go
 //line /abs/Summary.vue:7:1
@@ -93,91 +95,91 @@ return func(gosfcBinding string) any {
 }
 ```
 
-* ユーザーのテキストは全て `//line` directive の後ろにそのまま写します。Go の文法は変えません。go/parser、go/types、goesm の診断と source map は全て `.vue` の位置を指します。生成ファイル自身の位置（`_gosfc/.../setup.go`）が利用者に見えることはありません。
-* 並び：const / type 宣言 → 各 `func F(...)` のための `var F func(...)` → 残りを元の順で。`func F() {...}` は `F=func() {...}` に置き換えます。`F=func` は `func F` と同じ長さなので列もずれません。関数同士の相互参照・再帰ができ、本体は上から順に実行されます（Vue の `setup()` と同じ）。宣言より前で関数を呼ぶと nil func の panic になります。
-* 返り値の lookup 関数が template binding の入口です。値は `any` に box されるので Go の型 descriptor を保ったまま JS 側に渡ります。全 binding がここで参照されるため、template からしか使わない変数も Go の「declared and not used」にはなりません。未使用 import は通常どおり Go のエラーです。
-* package は `.vue` と同じディレクトリの下の、ディスクには存在しない `_gosfc/<name>_vue/` に置きます（goesm の overlay で渡す）。そのため import path は `<module>/<dir>/_gosfc/<name>_vue` になり、`internal/` の可視性も `.vue` の場所を基準に普通の Go と同じく働きます。ユーザーのソースツリーには何も書きません。
-* block が `type Props struct {...}` を宣言すると、その型は package レベルに置かれ、setup 関数は `func GosfcSetup(props Props)` になります。さらに `func GosfcProps() any { return Props{} }` を生成し、bridge はその型 descriptor のフィールドを見て component の属性（`useAttrs()`）から Props の値を作ります。glue には `defineOptions({ inheritAttrs: false })` が入るので、属性は root 要素に落ちません。Props のフィールドの型は import した型か組み込み型に限られます（block 内の型はまだ宣言されていないため）。
-* gosfc は Go を parse しません。`internal/synth` は標準の `go/scanner` でトークン化し、括弧の深さと scanner が挿入するセミコロンだけでトップレベルの区切りを決め、各要素の先頭トークン（`import` / `func 名前` / `var` / `const` / `type` / `a, b :=`）を見て分類と名前の取得をします。構文・型のエラーは全て Go toolchain が報告します。
-* gosfc が自分で出す診断は Go の外の制約だけです：メソッド宣言、generic 関数、import の位置、JavaScript の予約語と衝突する binding 名（`new`、`class` など）、`<script lang="go">`（setup なし）。
+* All user text is copied verbatim after `//line` directives. Go syntax is not changed. Diagnostics and source maps from go/parser, go/types, and goesm all point at positions in the `.vue` file. Positions in the generated file itself (`_gosfc/.../setup.go`) are never visible to the user.
+* Order: const / type declarations → a `var F func(...)` for each `func F(...)` → the rest in the original order. `func F() {...}` is replaced with `F=func() {...}`. `F=func` has the same length as `func F`, so columns do not shift either. Functions can refer to each other and recurse, and the bodies run from top to bottom (as in Vue's `setup()`). Calling a function before its declaration causes a nil func panic.
+* The returned lookup function is the entry point for template bindings. Values are boxed in `any`, so they reach the JS side with their Go type descriptors intact. Every binding is referenced here, so a variable used only from the template does not trigger Go's "declared and not used" error. Unused imports are a Go error as usual.
+* The package is placed in `_gosfc/<name>_vue/` under the same directory as the `.vue` file; this directory does not exist on disk (it is passed through goesm's overlay). The import path therefore becomes `<module>/<dir>/_gosfc/<name>_vue`, and `internal/` visibility works relative to the `.vue` file's location, just as in ordinary Go. Nothing is written to the user's source tree.
+* When the block declares `type Props struct {...}`, that type is placed at package level and the setup function becomes `func GosfcSetup(props Props)`. gosfc also generates `func GosfcProps() any { return Props{} }`, and the bridge looks at the fields of that type descriptor to build a Props value from the component's attributes (`useAttrs()`). The glue includes `defineOptions({ inheritAttrs: false })`, so the attributes do not fall through to the root element. The types of Props fields are limited to imported types and built-in types (because types in the block have not been declared yet).
+* gosfc does not parse Go. `internal/synth` tokenizes with the standard `go/scanner`, determines top-level boundaries using only bracket depth and the semicolons the scanner inserts, and classifies each item and obtains its name by looking at its leading tokens (`import` / `func name` / `var` / `const` / `type` / `a, b :=`). All syntax and type errors are reported by the Go toolchain.
+* The only diagnostics gosfc emits itself are for constraints outside Go: method declarations, generic functions, the position of imports, binding names that collide with JavaScript reserved words (`new`, `class`, and so on), and `<script lang="go">` (without setup).
 
-## 5. goesm との API 境界
+## 5. API boundary with goesm
 
-境界は `packages/vite/src/goesm.js` の 1 ファイルだけです。gosfc は goesm の CLI を、アプリの go.mod の tool directive で固定された版で呼びます（`go tool -n goesm` でビルド済みバイナリを得る）。
+The boundary is a single file, `packages/vite/src/goesm.js`. gosfc calls goesm's CLI at the version pinned by the tool directive in the app's go.mod (it gets the built binary with `go tool -n goesm`).
 
 ```
 goesm emit-ts -overlay <overlay.json> -o <dir> ./<rel>/_gosfc/<name>_vue
-  入力:  overlay.json は go command 標準の -overlay 形式 {"Replace": {"/abs/.../setup.go": "<一時ファイル>"}}
-  出力:  <dir>/<import path>.ts (+ .ts.map)      Go package ごとに 1 module、map は .vue / .go を指す
-         <dir>/@goesm/runtime/*.ts               goesm runtime（module 間と runtime への import は相対 `.ts` 指定）
-  失敗:  exit 1、stderr に "<file>:<line>:<col>: <message> [<layer>]"（layer は go/parser・go/types・go list・goesm lowering）
+  Input:   overlay.json uses the go command's standard -overlay format {"Replace": {"/abs/.../setup.go": "<temporary file>"}}
+  Output:  <dir>/<import path>.ts (+ .ts.map)      one module per Go package; maps point at .vue / .go
+           <dir>/@goesm/runtime/*.ts               the goesm runtime (imports between modules and into the runtime use relative `.ts` paths)
+  Failure: exit 1, with "<file>:<line>:<col>: <message> [<layer>]" on stderr (layer is go/parser, go/types, go list, or goesm lowering)
 ```
 
-概念上の `Compile(source, context) → { code, map, bindings, diagnostics }` との対応：source = overlay の synthetic Go、context = module ディレクトリと package pattern、code / map = 出力 module、diagnostics = stderr。bindings は gosfc 自身が synthetic Go を作る時点で知っているので goesm には求めていません。
+Mapping to the conceptual `Compile(source, context) → { code, map, bindings, diagnostics }`: source = the synthetic Go in the overlay, context = the module directory and the package pattern, code / map = the output modules, diagnostics = stderr. gosfc already knows the bindings when it builds the synthetic Go, so it does not ask goesm for them.
 
-goesm 側の変更はこの PoC のために 1 つだけです：`build` / `emit-ts` に `-overlay` を追加（goesm PR #3、main にマージ済み）。go/packages の `Overlay` をそのまま使うので、module・package 解決は引き続き go command の仕事です。gosfc は Go AST にも go/packages にも依存しません。
+Only one change was made on the goesm side for this PoC: adding `-overlay` to `build` / `emit-ts` (goesm PR #3, merged into main). It uses go/packages' `Overlay` as is, so module and package resolution remain the go command's job. gosfc depends on neither the Go AST nor go/packages.
 
-## 6. template binding
+## 6. Template bindings
 
-`runtime/bridge.js` が `GosfcSetup()` を component instance ごとに 1 回呼び、各 binding を Vue の `computed` として公開します。
+`runtime/bridge.js` calls `GosfcSetup()` once per component instance and exposes each binding as a Vue `computed`.
 
-* Go のコードが変更するのは普通の Go 変数で、Vue はそれを観測できません。そこで binding 経由で Go の関数を呼ぶ（イベントハンドラ、template 内の呼び出し）たびに instance の version を進め、全 binding が Go から値を読み直します。Vue 自身の reactivity と scheduler だけを使い、別の renderer や scheduler はありません。
-* 値は goesm の `toJS` で template 向けに変換します（Go 文字列 → JS 文字列、slice → 配列、struct → object）。これはスナップショットで、JS 側で書き換えても Go の状態は変わりません。
-* Go 関数は宣言された引数の数だけ受け取ります。`@click="Increment"` に渡る DOM event は `func Increment()` には渡りません。string 引数は JS 文字列から Go 文字列へ変換します。blocking な Go 関数（Promise を返す）は解決後に更新します。
+* What Go code changes are ordinary Go variables, which Vue cannot observe. So every time a Go function is called through a binding (an event handler, a call in the template), the instance's version is advanced and every binding re-reads its value from Go. Only Vue's own reactivity and scheduler are used; there is no separate renderer or scheduler.
+* Values are converted for the template with goesm's `toJS` (Go string → JS string, slice → array, struct → object). This is a snapshot: modifying it on the JS side does not change Go state.
+* A Go function receives only as many arguments as it declares. The DOM event passed by `@click="Increment"` is not passed to `func Increment()`. String arguments are converted from JS strings to Go strings. For a blocking Go function (one that returns a Promise), the update happens after it resolves.
 
-## 7. source map と診断
+## 7. Source maps and diagnostics
 
 ```
 .vue ──//line──> synthetic Go ──goesm──> TypeScript ──Vite(oxc)──> JS ──Rolldown──> bundle
-       位置は //line で .vue のまま   map: TS → .vue / .go      Vite が各段の map を合成
-.vue ──MagicString──> 置き換え後の .vue ──plugin-vue──> JS      （template / glue 側）
+       positions stay in .vue via //line   map: TS → .vue / .go      Vite composes each stage's map
+.vue ──MagicString──> rewritten .vue ──plugin-vue──> JS      (template / glue side)
 ```
 
-* Go の診断（構文・型・import・goesm の lowering 制約）は最初から `.vue` の位置で出ます。Vite / Astro のエラーには `src/features/cart/Summary.vue:17:21: cannot use "x" ... [go/types]` と code frame 付きで渡します。
-* 生成物の map は goesm が作る TS→Go の map（source は `.vue` と `.go`）を Vite の load hook で返すだけで、合成は Vite / Rolldown に任せます。テストで、bundle 中の `Total(items)` が `Summary.vue:17`、`item.Price * item.Quantity` が `price.go:7` に戻ることを確認しています。
-* dev SSR で Go の panic が起きると、stack trace は Vite の `ssrFixStacktrace` を通して `TmpPanic.vue:6` を指します（テスト済み）。
+* Go diagnostics (syntax, types, imports, goesm lowering constraints) are reported at `.vue` positions from the start. They are passed to Vite / Astro errors as `src/features/cart/Summary.vue:17:21: cannot use "x" ... [go/types]` with a code frame.
+* For the generated code's map, gosfc simply returns the TS→Go map that goesm produces (whose sources are `.vue` and `.go`) from Vite's load hook, and leaves composition to Vite / Rolldown. Tests confirm that `Total(items)` in the bundle maps back to `Summary.vue:17` and `item.Price * item.Quantity` to `price.go:7`.
+* When a Go panic occurs during dev SSR, the stack trace goes through Vite's `ssrFixStacktrace` and points at `TmpPanic.vue:6` (tested).
 
 ## 8. HMR
 
-独自の HMR runtime はありません。判定と更新は `@vitejs/plugin-vue` と Vite のものです。
+There is no custom HMR runtime. The decisions and updates are those of `@vitejs/plugin-vue` and Vite.
 
-* plugin-vue は HMR 時にファイルを読み直して前後の descriptor を比べます。gosfc は `handleHotUpdate` で HMR context の `read()` を差し替え、plugin-vue にはコンパイル後の SFC を見せます。その結果、template だけの変更は re-render（Go の状態は残る）、Go block の変更は component の reload（Go を再実行）になります。
-* binding が変わらない Go の変更でも script が変わるよう、glue には lowering 後のコードの hash を `useGo` の引数として入れています（plugin-vue は script を AST で比べるのでコメントでは足りません）。
-* `.go` ファイルの変更は、その package を使う `.vue` を無効化して reload します。`addWatchFile` も登録しているので、HMR を切った dev server や `vite build --watch` でも再コンパイルされます。
-* 生成 module は内容が変わった時だけ Vite の module graph で無効化し、Vite が付ける `?t=` で新しい版が読み込まれます。
+* On HMR, plugin-vue re-reads the file and compares the old and new descriptors. gosfc replaces the HMR context's `read()` in `handleHotUpdate`, so plugin-vue sees the compiled SFC. As a result, a template-only change causes a re-render (Go state is kept), and a change to the Go block causes a component reload (Go runs again).
+* So that the script changes even for a Go change that leaves the bindings unchanged, the glue passes a hash of the lowered code as an argument to `useGo` (plugin-vue compares scripts by AST, so a comment would not be enough).
+* A change to a `.go` file invalidates and reloads the `.vue` files that use that package. `addWatchFile` is also registered, so recompilation also happens on a dev server with HMR disabled and with `vite build --watch`.
+* Generated modules are invalidated in Vite's module graph only when their content changes, and the new version is loaded via the `?t=` that Vite adds.
 
 ## 9. Astro
 
-`@gosfc/astro` は `@astrojs/vue`（まだ無ければ）と `@gosfc/vite` を設定するだけです。Go block を持つ component は Astro から見て普通の Vue component で、`client:*` なしなら Astro の SSR で静的 HTML に、`client:load` なら同じ SSR HTML を hydrate する island になります。Go native SSR のような別 renderer はなく、SSR と client は同じ lowering 済み module を実行します。
+`@gosfc/astro` only configures `@astrojs/vue` (if not already present) and `@gosfc/vite`. To Astro, a component with a Go block is an ordinary Vue component: without `client:*` it becomes static HTML through Astro's SSR, and with `client:load` it becomes an island that hydrates the same SSR HTML. There is no separate renderer such as Go-native SSR; SSR and the client run the same lowered modules.
 
-## 10. セキュリティ
+## 10. Security
 
-* gosfc に plugin や拡張の仕組みはありません。Go の依存を import しても、それがコンパイラの中で実行されることはありません。
-* 実行されるのは go.mod の tool directive で固定され、go.sum で検証された `gosfc` と `goesm` だけです。goesm は `go list` を実行するので、go command の信頼境界（環境変数、`go.work`、GOPROXY からの取得）をそのまま引き継ぎます。
-* Go のソースは source map の `sourcesContent` と goesm の panic メッセージに含まれます。公開する bundle の map にはソースが入ります。
-* template 側の値はスナップショットなので、template から Go の状態を直接書き換える経路はありません。
+* gosfc has no plugin or extension mechanism. Importing a Go dependency never causes it to run inside the compiler.
+* The only things executed are `gosfc` and `goesm`, pinned by the tool directive in go.mod and verified by go.sum. goesm runs `go list`, so it inherits the go command's trust boundary as is (environment variables, `go.work`, fetching from GOPROXY).
+* Go source is included in source maps' `sourcesContent` and in goesm's panic messages. The maps of a published bundle contain the source.
+* Values on the template side are snapshots, so there is no path for the template to modify Go state directly.
 
-## 11. 未実装・未決事項
+## 11. Not yet implemented / open questions
 
-未実装：
+Not yet implemented:
 
-* emits / slots を Go から扱う方法。props は §4 の `type Props` で受け取れますが、setup 時のスナップショットで、変更には追従しません。
-* `gosfc fmt`（§12）、language server、VS Code extension。
-* メソッド、generic 関数を Go block 内で宣言すること（Go package に置く必要がある）。
-* goroutine やタイマーなど、binding 経由の呼び出し以外で起きた Go 状態の変更を template に反映すること。
-* template から Go の値を書き換えること（`v-model` など）。
-* JS 値 ⇔ Go 値の変換は goesm の `toJS` と string 引数のみ。struct・slice を引数に取る Go 関数を template から呼ぶ場合の変換はありません（goesm に JS 呼び出し ABI がまだ無い）。
+* A way to handle emits / slots from Go. Props can be received with `type Props` from §4, but they are a snapshot taken at setup time and do not follow changes.
+* `gosfc fmt` (§12), a language server, a VS Code extension.
+* Declaring methods and generic functions inside the Go block (they must go in a Go package).
+* Reflecting in the template changes to Go state that happen other than through calls via bindings, such as from goroutines or timers.
+* Modifying Go values from the template (`v-model` and so on).
+* JS value ⇔ Go value conversion is limited to goesm's `toJS` and string arguments. There is no conversion for calling, from the template, a Go function that takes a struct or slice argument (goesm does not have a JS calling ABI yet).
 
-未決事項：
+Open questions:
 
-* `.go` の HMR は依存する component を reload します。package の module 単位で差し替えることはしていません。
-* dev server 起動直後の最初の HMR は、template だけの変更でも reload になります。plugin-vue が最初の transform のときにディスクから生の `.vue` を読んで HMR 用の cache に入れるためで、2 回目以降は §8 のとおり動きます。plugin-vue の `compiler` option で `parse` を包めば解消できますが、plugin-vue の設定に手を入れることになるので保留しています。
-* HMR context の `read()` の差し替えは、Vite が `handleHotUpdate` の plugin 間で同じ context を渡すことに依存しています。plugin-vue 側に「script の前処理」を差し込む公式の入口があればそちらに移すべきです。
-* `go:` specifier と `@goesm/runtime` を Vite で解決する処理は gosfc の plugin にあります。goesm の ESM 接続の責務と考えれば、`@goesm/vite` のような形で goesm 側に移すのが自然です。
-* component ごとに goesm を 1 回起動し、依存 package も毎回 lowering します。キャッシュや常駐プロセスによる高速化はまだありません。
+* HMR for `.go` files reloads the components that depend on them. Swapping in a package's module on its own is not done.
+* The first HMR right after the dev server starts causes a reload even for a template-only change. This is because plugin-vue reads the raw `.vue` from disk during the first transform and stores it in its HMR cache; from the second time on it works as described in §8. Wrapping `parse` through plugin-vue's `compiler` option would fix this, but it means modifying plugin-vue's configuration, so it is on hold.
+* Replacing the HMR context's `read()` relies on Vite passing the same context between plugins in `handleHotUpdate`. If plugin-vue offers an official entry point for inserting "script preprocessing", this should move there.
+* Resolving the `go:` specifier and `@goesm/runtime` in Vite is handled in gosfc's plugin. If this is considered part of goesm's responsibility for ESM integration, it would be natural to move it to the goesm side, in a form such as `@goesm/vite`.
+* goesm is started once per component, and dependent packages are lowered every time. There is no speedup through caching or a resident process yet.
 
-## 12. formatter と editor integration の方針
+## 12. Formatter and editor integration plan
 
-* **formatter**：`gofmt` 相当は `go/format` を使います。`go/format.Source` は「宣言の列」や「文の列」も整形できるので、`internal/synth` のトップレベル分割を使って import 群・宣言・文をそれぞれ `go/format` に通し、元の空行で繋ぎ直せば Go block だけを整形できます。`gosfc fmt` はそれを `.vue` の該当範囲に書き戻すだけにし、template / style は Prettier や Vue Language Tools に任せます。
-* **language server**：`.vue` の Go block から、ここで使っている synthetic Go をそのまま virtual Go document にし、gopls に overlay として渡します（gopls も go/packages の overlay を使う）。`//line` directive があるので gopls の診断・位置は `.vue` の座標に戻せます。completion・hover・definition・references・rename・code action・import completion は gopls のものを中継するだけにし、gosfc 独自の Go 補完は作りません。template / style は Vue Language Tools の担当のままにして、`.vue` を 2 つの language server で分担します。VS Code extension は薄い LSP client にします。
-* **template ↔ Go**：template の識別子と Go の binding の対応は、glue（`const total = __gosfc.binding("total")`）と synthetic Go の lookup（`case "total": return total`）の両方に現れます。Vue Language Tools が glue の `total` を辿れれば、その位置を synthetic Go 経由で gopls の定義に繋ぐことで definition / rename を双方向にできます。この橋渡しはまだ設計だけです。
+* **formatter**: `gofmt`-equivalent formatting uses `go/format`. `go/format.Source` can also format "a list of declarations" or "a list of statements", so the Go block alone can be formatted by using the top-level split from `internal/synth` to pass the import group, declarations, and statements through `go/format` separately and rejoining them with the original blank lines. `gosfc fmt` will only write that back to the corresponding range of the `.vue` file, leaving the template / style to Prettier or Vue Language Tools.
+* **language server**: from the Go block in a `.vue` file, the synthetic Go used here becomes a virtual Go document as is and is passed to gopls as an overlay (gopls also uses go/packages overlays). Because of the `//line` directives, gopls diagnostics and positions can be mapped back to `.vue` coordinates. Completion, hover, definition, references, rename, code actions, and import completion will simply relay those from gopls; gosfc will not build its own Go completion. The template / style stay the responsibility of Vue Language Tools, so `.vue` files are shared between two language servers. The VS Code extension will be a thin LSP client.
+* **template ↔ Go**: the correspondence between template identifiers and Go bindings appears both in the glue (`const total = __gosfc.binding("total")`) and in the synthetic Go's lookup (`case "total": return total`). If Vue Language Tools can follow `total` in the glue, connecting that position to gopls's definition via the synthetic Go makes definition / rename work in both directions. This bridge exists only as a design so far.

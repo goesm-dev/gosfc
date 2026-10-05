@@ -1,83 +1,85 @@
 # Contributing to gosfc
 
-gosfc への contribution を歓迎します。issue、pull request のどちらからでも始めてください。大きな変更や責務境界に関わる変更は、先に issue で方針を相談してもらえると助かります。
+English | [日本語](CONTRIBUTING.ja.md)
 
-gosfc は **PoC 段階** です。全体像は [README.ja.md](README.ja.md)、設計と未実装の項目は [ARCHITECTURE.md](ARCHITECTURE.md) にあります。
+Contributions to gosfc are welcome. You can start with either an issue or a pull request. For large changes or changes that affect the responsibility boundaries, it helps if you discuss the approach in an issue first.
 
-## 設計原則
+gosfc is at the **PoC stage**. The overview is in [README.md](README.md), and the design and the items not yet implemented are in [ARCHITECTURE.md](ARCHITECTURE.md).
 
-gosfc の目的は「Go 風のフロントエンド言語を作ること」ではなく、**本物の Go を Vue SFC ecosystem へ自然に接続すること** です。gosfc は Vue SFC と goesm をつなぐ adapter に留め、他のレイヤーの責務を持ち込みません。
+## Design principles
 
-判断に迷ったら、次の順で優先してください。
+The goal of gosfc is not "to create a Go-like frontend language" but **to connect real Go naturally to the Vue SFC ecosystem**. gosfc stays an adapter between Vue SFCs and goesm, and does not take on the responsibilities of other layers.
 
-1. Go ecosystem との互換性
-2. 通常の Go code をそのまま利用できること
-3. Vue SFC として自然であること
-4. Vite との統合が自然であること
-5. Astro との統合が自然であること
-6. 独自仕様を増やさないこと
+When in doubt, prioritize in this order:
 
-次のものは gosfc に実装しません。必要になったら、それぞれの担当に委ねてください。
+1. Compatibility with the Go ecosystem
+2. Ordinary Go code can be used as is
+3. Being natural as a Vue SFC
+4. Natural integration with Vite
+5. Natural integration with Astro
+6. Not adding custom specifications
 
-| 実装しないもの | 担当 |
+The following are not implemented in gosfc. When they are needed, leave them to the layer responsible for each.
+
+| Not implemented | Responsible |
 |---|---|
-| Go parser / type checker、Go Modules・package の解決 | Go toolchain |
-| Go → TypeScript / ESM の変換、Go の意味論 | goesm |
-| SFC parser、template compiler、Vue runtime | Vue tooling |
-| bundler、開発サーバー | Vite / Rolldown |
-| routing、SSR、islands、`client:*`、page generation | Astro |
+| Go parser / type checker, Go Modules and package resolution | Go toolchain |
+| Go → TypeScript / ESM conversion, Go semantics | goesm |
+| SFC parser, template compiler, Vue runtime | Vue tooling |
+| Bundler, dev server | Vite / Rolldown |
+| Routing, SSR, islands, `client:*`, page generation | Astro |
 
-あわせて、次の約束を守ってください。
+In addition, please keep the following commitments:
 
-* 独自の import 記法（`import "./cart.go"`、`import "./Button.vue"`、`import Button from "./Button.vue"` など）は導入しません。Go block の import は普通の Go import だけです。
-* `.go` ファイルは普通の Go package のままにします。gosfc 専用の `.go` 形式は作りません。
-* `go`、`gofmt`、`gopls`、`go vet` などと競合する独自 tooling は作りません。
-* `lang="go"` 以外の `.vue` には触れません。`lang="ts"` の component はそのまま Vue / Vite に渡します。
+* Do not introduce custom import syntax (`import "./cart.go"`, `import "./Button.vue"`, `import Button from "./Button.vue"`, and so on). Imports in the Go block are ordinary Go imports only.
+* `.go` files stay ordinary Go packages. Do not create a gosfc-specific `.go` format.
+* Do not build custom tooling that competes with `go`, `gofmt`, `gopls`, `go vet`, and so on.
+* Do not touch `.vue` files other than those with `lang="go"`. Components with `lang="ts"` are passed to Vue / Vite as is.
 
-## goesm との境界
+## Boundary with goesm
 
-* gosfc は goesm を CLI（`go tool goesm emit-ts -overlay ...`）経由でのみ呼びます。goesm の Go package は `internal/` なので import しません。
-* 境界は `packages/vite/src/goesm.js` の 1 ファイルだけです。goesm の呼び方を変えるときはここだけを変更してください。
-* goesm 側の変更が必要な場合は [goesm](https://github.com/goesm-dev/goesm) に pull request を出してください。goesm に Vue や SFC の知識を入れず、汎用的な機能（例：`-overlay`）として提案します。
-* goesm は release（`v0.0.1-beta.N`）で固定します。新しい release が出たら、`examples/astro/go.mod`、`tests/fixtures/app/go.mod`、`bench/go.mod` で `go get -tool github.com/goesm-dev/goesm/cmd/goesm@<version>` を実行します。
+* gosfc calls goesm only through its CLI (`go tool goesm emit-ts -overlay ...`). goesm's Go packages are under `internal/`, so they are not imported.
+* The boundary is a single file, `packages/vite/src/goesm.js`. When changing how goesm is called, change only this file.
+* If a change is needed on the goesm side, open a pull request against [goesm](https://github.com/goesm-dev/goesm). Do not put knowledge of Vue or SFCs into goesm; propose it as a general-purpose feature (for example, `-overlay`).
+* goesm is pinned to a release (`v0.0.1-beta.N`). When a new release comes out, run `go get -tool github.com/goesm-dev/goesm/cmd/goesm@<version>` in `examples/astro/go.mod`, `tests/fixtures/app/go.mod`, and `bench/go.mod`.
 
-## 開発環境
+## Development environment
 
-開発ツールは [mise](https://mise.jdx.dev/) で揃えます。Go、Node.js、pnpm のバージョンは `mise.toml` で pin しています。
+Development tools are set up with [mise](https://mise.jdx.dev/). The Go, Node.js, and pnpm versions are pinned in `mise.toml`.
 
 ```sh
 mise install
 pnpm install
 ```
 
-* ツールを最新に上げるときは `mise upgrade --bump`（`-b`）を実行し、`pnpm test` が通ることを確認してから更新後の `mise.toml` を commit してください。
-* pnpm のバージョンは `mise.toml` だけで管理します。`package.json` に `packageManager` は書きません。
-* build script を実行してよい依存は `pnpm-workspace.yaml` の `allowBuilds` に列挙しています。
+* To upgrade the tools to the latest versions, run `mise upgrade --bump` (`-b`), confirm that `pnpm test` passes, and then commit the updated `mise.toml`.
+* The pnpm version is managed only in `mise.toml`. Do not add `packageManager` to `package.json`.
+* Dependencies that are allowed to run build scripts are listed in `allowBuilds` in `pnpm-workspace.yaml`.
 
-## テスト
+## Tests
 
 ```sh
 pnpm test
 ```
 
-`go test ./...`（`internal/synth` など）と `tests/*.test.mjs`（Astro build、Vite build / SSR / HMR、診断）が走ります。ブラウザでの HMR テストは `/opt/pw-browsers/chromium` または `CHROMIUM` 環境変数の Chromium を使い、見つからなければ skip します。
+This runs `go test ./...` (`internal/synth` and so on) and `tests/*.test.mjs` (Astro build, Vite build / SSR / HMR, diagnostics). The browser HMR test uses Chromium at `/opt/pw-browsers/chromium` or from the `CHROMIUM` environment variable, and is skipped if it is not found.
 
-example を手元で動かす場合：
+To run the example locally:
 
 ```sh
 cd examples/astro
-pnpm build   # dist/index.html に「合計: 200」
+pnpm build   # dist/index.html contains 「合計: 200」
 pnpm dev
 ```
 
-## Pull request
+## Pull requests
 
-* 1 つの pull request には 1 つの目的だけを入れてください。
-* 動作が変わる変更にはテストを追加してください。
-* Go のコードは `gofmt` と `go vet ./...` を通してください。
-* 責務境界、goesm との API、未実装・未決事項が変わる場合は ARCHITECTURE.md も更新してください。
-* `pnpm test` が通ることを確認してから提出してください。
+* Put only one purpose in each pull request.
+* Add tests for changes that alter behavior.
+* Go code must pass `gofmt` and `go vet ./...`.
+* If the responsibility boundaries, the API with goesm, or the items not yet implemented / open questions change, update ARCHITECTURE.md as well.
+* Confirm that `pnpm test` passes before submitting.
 
-## ライセンス
+## License
 
-gosfc は [MIT License](LICENSE) で公開されています。contribution は同じ MIT License の下で提供されたものとして扱います。npm package にも同梱するため、`packages/vite/LICENSE` と `packages/astro/LICENSE` はルートの `LICENSE` の写しにしています。
+gosfc is released under the [MIT License](LICENSE). Contributions are treated as provided under the same MIT License. Because they are also bundled in the npm packages, `packages/vite/LICENSE` and `packages/astro/LICENSE` are copies of the root `LICENSE`.
