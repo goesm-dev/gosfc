@@ -13,7 +13,7 @@ import { fromGo, readProps } from "gosfc:convert.js";
 
 /**
  * @param {(props?: any) => any} setup
- * @param {(() => { t: any, v: any }) | null} props zero value of the block's Props
+ * @param {(() => Record<string, unknown>) | null} props zero value of the block's Props
  * @param {Record<string, unknown>} astroProps Astro.props
  * @returns {Promise<(name: string) => any>}
  */

@@ -39,7 +39,7 @@ total := cart.Total(items)
 
 ## 使い方（Astro）
 
-1. Go モジュールに goesm と gosfc をツールとして追加します。バージョンは go.mod / go.sum で固定されます。
+1. Go モジュールに goesm と gosfc をツールとして追加します。バージョンは go.mod / go.sum で固定されます。gosfc には goesm v0.0.1-beta.3 以降が必要です。
 
    ```sh
    go get -tool github.com/goesm-dev/goesm/cmd/goesm@<version>
@@ -84,8 +84,8 @@ export default { plugins: [gosfc(), vue()] };
 ## Go ブロックの書き方
 
 * トップレベルは Vue の `<script setup>` と同じくコンポーネントインスタンスごとに上から 1 回実行されます。`x := ...`、`var`、`const`、`type`、`func F() {...}` が書けます。
-* トップレベルの変数・定数・関数はテンプレートから参照できます。Go 関数をテンプレートから呼ぶ（`@click="Increment"` など）と、表示が Go の値に追従します。
-* `import` で取り込めるのは Go のパッケージだけです。`.astro` ファイルの Go のフロントマターでは、後述のとおり JavaScript のモジュールも import できます。Vue コンポーネントの Go ブロックには、Vue コンポーネント、TypeScript、JavaScript を goesm の [`//goesm:import`](https://github.com/goesm-dev/goesm/blob/main/docs/js-imports.ja.md) ディレクティブで取り込みます。コンポーネントやクラスなどの値は `var` の前に、関数は本体のない関数宣言の前にディレクティブを書きます。関数の引数と戻り値は自動で変換されます。どちらもブロックのほかの名前と同じくテンプレートから使えます。これらはパッケージレベルで宣言されるので、型にはインポートした型と組み込みの型を使え、ブロック内で宣言した型は使えません。このディレクティブには goesm v0.0.1-beta.2 以降が必要です。go.mod で指定した goesm がそれより古いと、ディレクティブは認識されません。
+* トップレベルの変数・定数・関数はテンプレートから参照できます。Go 関数をテンプレートから呼ぶ（`@click="Increment"` など）と、表示が Go の値に追従します。値や、呼び出しの引数と戻り値は goesm の[エクスポートされた関数](https://github.com/goesm-dev/goesm/blob/main/docs/js-exports.ja.md)と同じく変換されます。文字列は文字列、スライスは配列、struct は普通のオブジェクトになります。
+* `import` で取り込めるのは Go のパッケージだけです。`.astro` ファイルの Go のフロントマターでは、後述のとおり JavaScript のモジュールも import できます。Vue コンポーネントの Go ブロックには、Vue コンポーネント、TypeScript、JavaScript を goesm の [`//goesm:import`](https://github.com/goesm-dev/goesm/blob/main/docs/js-imports.ja.md) ディレクティブで取り込みます。コンポーネントやクラスなどの値は `var` の前に、関数は本体のない関数宣言の前にディレクティブを書きます。関数の引数と戻り値は自動で変換されます。どちらもブロックのほかの名前と同じくテンプレートから使えます。これらはパッケージレベルで宣言されるので、型にはインポートした型と組み込みの型を使え、ブロック内で宣言した型は使えません。
 
   ```vue
   <template>
@@ -182,15 +182,15 @@ button.Call("addEventListener", "click", js.FuncOf(func(this js.Value, args []js
 
 ## JavaScript から Go をインポートする
 
-Go モジュールの中にある `.js`、`.ts`、`.astro` のモジュールは、`go:` specifier で Go パッケージを直接インポートできます。gosfc はインポートした側のファイルが属する Go モジュールで goesm を使ってそのパッケージをコンパイルし、Vite が他のモジュールと同じようにバンドルします。API は goesm のものです：エクスポートされた関数と型があり、Go の文字列やスライスは各モジュールが `$runtime` として再エクスポートするランタイムで変換します。
+Go モジュールの中にある `.js`、`.ts`、`.astro` のモジュールは、`go:` specifier で Go パッケージを直接インポートできます。gosfc はインポートした側のファイルが属する Go モジュールで goesm を使ってそのパッケージをコンパイルし、Vite が他のモジュールと同じようにバンドルします。API は goesm の [JS 呼び出し ABI](https://github.com/goesm-dev/goesm/blob/main/docs/js-exports.ja.md) に従います。エクスポートされた関数は、文字列、配列、オブジェクトといった普通の JavaScript の値を受け取り、返します。
 
 ```astro
 ---
 // src/pages/[slug].astro
-import { Slugs, $runtime as rt } from "go:example.com/app/content";
+import { Slugs } from "go:example.com/app/content";
 
 export function getStaticPaths() {
-  return rt.toArray(Slugs()).map((s) => ({ params: { slug: rt.toJSString(s) } }));
+  return Slugs().map((slug) => ({ params: { slug } }));
 }
 ---
 ```

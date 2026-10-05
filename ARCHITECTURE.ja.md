@@ -41,7 +41,7 @@ cmd/gosfc/          Go 側の CLI（`gosfc synth`）。アプリの go.mod に t
 internal/synth/     <script setup lang="go"> と .astro の Go → synthetic Go（go/scanner のみ使用）
 packages/vite/      @gosfc/vite: Vite plugin。src/compile.js が SFC と .astro の変換の中心、
                     src/goesm.js が goesm との唯一の境界、runtime/bridge.js が template binding、
-                    runtime/astro.js が Go のフロントマターの binding、runtime/convert.js が両者の値の変換
+                    runtime/astro.js が Go のフロントマターの binding、runtime/convert.js が両者のバインディングの値と props
 packages/astro/     @gosfc/astro: @astrojs/vue + @gosfc/vite を設定するだけの integration
 examples/astro/     PoC（Astro → Vue → gosfc → goesm → Vite）と Go で書いた .astro のページ
 tests/              Node のテスト（Astro build、Vite build / SSR / HMR、診断）と fixture
@@ -99,9 +99,9 @@ return func(gosfcBinding string) any {
 * ユーザーのテキストは全て `//line` ディレクティブの後ろにそのまま写します。Go の文法は変えません。go/parser、go/types、goesm の診断とソースマップは全て `.vue` の位置を指します。生成ファイル自身の位置（`_gosfc/.../setup.go`）が利用者に見えることはありません。
 * 並び：const / type 宣言 → 各 `func F(...)` のための `var F func(...)` → 残りを元の順で。`func F() {...}` は `F=func() {...}` に置き換えます。`F=func` は `func F` と同じ長さなので列もずれません。関数同士の相互参照・再帰ができ、本体は上から順に実行されます（Vue の `setup()` と同じ）。宣言より前で関数を呼ぶと nil func のパニックになります。
 * goesm の `//goesm:import` ディレクティブが前にある `var` と本体のない関数は、Vue コンポーネントや TypeScript の関数などの ES モジュールの値を取り込む宣言です。これらはディレクティブとともにパッケージレベルに置きます。ディレクティブは宣言の直前の行に置き、その前の `//line` ディレクティブで宣言自身の位置が保たれるようにします。間に `//line` を挟むと、goesm が読むドキュメントコメントが途切れるからです。goesm は相対パスのモジュールを `//line` が指す `.vue` ファイルから解決し、`@gosfc/vite` はそのファイルの import を絶対パスに書き換えます。Vite はそれをほかのモジュールと同じように読み込みます。`js.Value` のバインディングはテンプレートでは保持している値そのものになるので、コンポーネントは `<Badge />` として使えます。
-* 返り値のルックアップ関数がテンプレートバインディングの入口です。値は `any` にボックス化されるので Go の型ディスクリプターを保ったまま JS 側に渡ります。全バインディングがここで参照されるため、テンプレートからしか使わない変数も Go の「declared and not used」にはなりません。未使用のインポートは通常どおり Go のエラーです。
+* 返り値のルックアップ関数がテンプレートバインディングの入口です。`GosfcSetup` はコンポーネントのパッケージがエクスポートする関数なので、ルックアップ関数の引数と戻り値は goesm の [JS 呼び出し ABI](https://github.com/goesm-dev/goesm/blob/main/docs/js-exports.ja.md) が変換します。各値は動的な型に従って変換され、JavaScript に渡ります。全バインディングがここで参照されるため、テンプレートからしか使わない変数も Go の「declared and not used」にはなりません。未使用のインポートは通常どおり Go のエラーです。
 * パッケージは `.vue` と同じディレクトリの下の、ディスクには存在しない `_gosfc/<name>_vue/` に置きます（goesm のオーバーレイで渡す）。そのためインポートパスは `<module>/<dir>/_gosfc/<name>_vue` になり、`internal/` の可視性も `.vue` の場所を基準に普通の Go と同じく働きます。ユーザーのソースツリーには何も書きません。
-* ブロックが `type Props struct {...}` を宣言すると、その型はパッケージレベルに置かれ、setup 関数は `func GosfcSetup(props Props)` になります。さらに `func GosfcProps() any { return Props{} }` を生成し、ブリッジはその型ディスクリプターのフィールドを見てコンポーネントの属性（`useAttrs()`）から Props の値を作ります。glue には `defineOptions({ inheritAttrs: false })` が入るので、属性はルート要素に落ちません。Props のフィールドの型はインポートした型か組み込み型に限られます（ブロック内の型はまだ宣言されていないため）。
+* ブロックが `type Props struct {...}` を宣言すると、その型はパッケージレベルに置かれ、setup 関数は `func GosfcSetup(props Props)` になります。さらに `func GosfcProps() any { return Props{} }` を生成します。この値はフィールドの JSON 名をキーとする普通のオブジェクトとして JavaScript に渡ります。ブリッジはそのコピーにコンポーネントの属性（`useAttrs()`）を入れて setup 関数に渡し、setup 関数の ABI がそれを Props に変換します。glue には `defineOptions({ inheritAttrs: false })` が入るので、属性はルート要素に落ちません。Props のフィールドの型はインポートした型か組み込み型に限られます（ブロック内の型はまだ宣言されていないため）。
 * gosfc は Go をパースしません。`internal/synth` は標準の `go/scanner` でトークン化し、括弧の深さとスキャナーが挿入するセミコロンだけでトップレベルの区切りを決め、各要素の先頭トークン（`import` / `func 名前` / `var` / `const` / `type` / `a, b :=`）を見て分類と名前の取得をします。構文・型のエラーは全て Go ツールチェーンが報告します。
 * gosfc が自分で出す診断は Go の外の制約だけです：メソッド宣言、ジェネリック関数、インポートの位置、JavaScript の予約語と衝突するバインディング名（`new`、`class` など）、`<script lang="go">`（setup なし）。
 
@@ -126,8 +126,8 @@ goesm 側の変更はこの PoC のために 1 つだけです：`build` / `emit
 `runtime/bridge.js` が `GosfcSetup()` をコンポーネントインスタンスごとに 1 回呼び、各バインディングを Vue の `computed` として公開します。
 
 * Go のコードが変更するのは普通の Go 変数で、Vue はそれを観測できません。そこでバインディング経由で Go の関数を呼ぶ（イベントハンドラ、テンプレート内の呼び出し）たびにインスタンスのバージョンを進め、全バインディングが Go から値を読み直します。Vue 自身のリアクティビティとスケジューラーだけを使い、別のレンダラーやスケジューラーはありません。
-* 値は goesm の `toJS` でテンプレート向けに変換します（Go 文字列 → JS 文字列、スライス → 配列、struct → オブジェクト）。これはスナップショットで、JS 側で書き換えても Go の状態は変わりません。
-* Go 関数は宣言された引数の数だけ受け取ります。`@click="Increment"` に渡る DOM イベントは `func Increment()` には渡りません。string 引数は JS 文字列から Go 文字列へ変換します。ブロッキングする Go 関数（Promise を返す）は解決後に更新します。
+* 値は goesm の JS 呼び出し ABI でテンプレート向けに変換します（Go 文字列 → JS 文字列、スライス → 配列、struct → オブジェクト、関数 → 関数）。これはスナップショットで、JS 側で書き換えても Go の状態は変わりません。
+* Go 関数は宣言された引数の数だけ受け取ります。`@click="Increment"` に渡る DOM イベントは `func Increment()` には渡りません。引数は struct やスライスも含めて ABI が変換し、最後の `error` の戻り値は例外として投げられます。ブロッキングする Go 関数（Promise を返す）は解決後に更新します。
 
 ## 7. ソースマップと診断
 
@@ -172,7 +172,7 @@ goesm 側の変更はこの PoC のために 1 つだけです：`build` / `emit
   ---
   ```
 
-  `runtime/astro.js` はレンダリングごとに setup を 1 回実行し、ブロックする setup はその完了を待ちます。`Props` には Vue のブリッジと同じ規則で `Astro.props` を入れ、値の変換にも同じコード `runtime/convert.js` を使います。Astro はテンプレートを 1 回しかレンダリングしないので、リアクティビティはありません。パッケージのインポートには `go:` ではなく内容から決まる仮想 ID を使います。`.vue` 以外のモジュールから `go:` でインポートすると、パッケージが overlay なしでコンパイルされるためです。
+  `runtime/astro.js` はレンダリングごとに setup を 1 回実行し、ブロックする setup はその完了を待ちます。`Props` には Vue のブリッジと同じ規則（`runtime/convert.js`）で `Astro.props` を入れ、値は同じ ABI で変換されます。Astro はテンプレートを 1 回しかレンダリングしないので、リアクティビティはありません。パッケージのインポートには `go:` ではなく内容から決まる仮想 ID を使います。`.vue` 以外のモジュールから `go:` でインポートすると、パッケージが overlay なしでコンパイルされるためです。
 * **クライアントスクリプト。** `<script lang="go">` はそれぞれ `<script>import "gosfc:astro-script/<n>/<file>.js"</script>` になり、Astro からは処理対象の普通のスクリプトに見えます。Astro はクライアントを専用の Vite の環境でビルドするので、ID にファイルと番号を含めています。この ID を読み込むと、`.astro` ファイルを読み直し、n 番目の Go のスクリプトを独立した goesm のプログラムとしてコンパイルし、`import { GosfcSetup } from "<id>"; GosfcSetup();` を返します。SSR の環境では Astro がスクリプトを読み込まず、クライアントの環境では `.astro` のモジュールを書き換えません。クライアントの環境の `.astro` のモジュールは Astro がスタブに置き換えるためです。
 * Vite の依存関係スキャナーは `.astro` の `<script>` 要素を TypeScript として読みます。Go を含むファイルについては、代わりに Go のフロントマターと他のスクリプトの JavaScript のインポートを見せます。
 
@@ -192,14 +192,13 @@ goesm 側の変更はこの PoC のために 1 つだけです：`build` / `emit
 * メソッド、ジェネリック関数を Go ブロック内で宣言すること（Go パッケージに置く必要がある）。
 * ゴルーチンやタイマーなど、バインディング経由の呼び出し以外で起きた Go の状態の変更をテンプレートに反映すること。
 * テンプレートから Go の値を書き換えること（`v-model` など）。
-* テンプレートバインディングでの JS 値 ⇔ Go 値の変換は goesm の `toJS` と string 引数のみ。struct・スライスを引数に取る Go 関数をテンプレートから呼ぶ場合の変換はありません。goesm の呼び出し ABI は Go から JavaScript を呼ぶ方向の `//goesm:import` だけです。
 
 未決事項：
 
 * `.go` の HMR は依存するコンポーネントをリロードします。パッケージのモジュール単位で差し替えることはしていません。
 * 開発サーバー起動直後の最初の HMR は、テンプレートだけの変更でもリロードになります。plugin-vue が最初の transform のときにディスクから生の `.vue` を読んで HMR 用のキャッシュに入れるためで、2 回目以降は §8 のとおり動きます。plugin-vue の `compiler` オプションで `parse` を包めば解消できますが、plugin-vue の設定に手を入れることになるので保留しています。
 * HMR コンテキストの `read()` の差し替えは、Vite が `handleHotUpdate` のプラグイン間で同じコンテキストを渡すことに依存しています。plugin-vue 側に「スクリプトの前処理」を差し込む公式の入口があればそちらに移すべきです。
-* `go:` specifier と `@goesm/runtime` を Vite で解決する処理は gosfc のプラグインにあります。goesm の ESM 接続の責務と考えれば、`@goesm/vite` のような形で goesm 側に移すのが自然です。
+* `go:` specifier を Vite で解決する処理は gosfc のプラグインにあります。goesm の ESM 接続の責務と考えれば、`@goesm/vite` のような形で goesm 側に移すのが自然です。
 * コンポーネントごとに goesm を 1 回起動し、依存パッケージも毎回 lowering します。キャッシュや常駐プロセスによる高速化はまだありません。
 
 ## 12. フォーマッターとエディター統合の方針

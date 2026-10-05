@@ -24,7 +24,7 @@
 // A block may declare the component's props as `type Props struct {...}`.
 // That type is declared at package level, the setup function takes it as
 // `props`, and a second function returns its zero value so the bridge can
-// read the fields from the type descriptor:
+// see the fields (as goesm's JS calling ABI converts it, a plain object):
 //
 //	type Props struct{ Route string }
 //	func GosfcSetup(props Props) func(string) any { ... }
@@ -58,11 +58,12 @@ import (
 
 // SetupFunc is the exported function of the synthetic package. It runs the
 // block once and returns a lookup function from binding name to the binding's
-// current value (boxed in an interface, so the value keeps its Go type).
+// current value, which goesm's JS calling ABI converts for JavaScript by its
+// dynamic type.
 const SetupFunc = "GosfcSetup"
 
-// PropsFunc returns the zero value of the block's Props type (boxed in an
-// interface), when the block declares one.
+// PropsFunc returns the zero value of the block's Props type, when the block
+// declares one.
 const PropsFunc = "GosfcProps"
 
 // PropsType is the name of the type that declares a component's props.

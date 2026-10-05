@@ -18,12 +18,11 @@
 //   go:<import path>      -> gosfc:goesm/<import path>.<hash>.ts (the glue's import, or an
 //                            import from a .js / .ts / .astro module, which compiles
 //                            that package in the importing file's Go module)
-//   @goesm/runtime        -> gosfc:goesm/@goesm/runtime/index.ts  (the bridge's import)
 //   "./x.ts", "../y.ts"   -> resolved relative to the importing virtual id
 //                            (the runtime's files import each other this way)
 //   gosfc:bridge.js       -> runtime/bridge.js (template bindings)
 //   gosfc:astro.js        -> runtime/astro.js (Go frontmatter bindings)
-//   gosfc:convert.js      -> runtime/convert.js (Go <-> JS values, used by both)
+//   gosfc:convert.js      -> runtime/convert.js (binding values and props, used by both)
 //   gosfc:astro-script/<n>/<file>.js
 //                         -> the n-th <script lang="go"> of an .astro file, compiled
 //                            when requested (also in Astro's client build, which has
@@ -197,8 +196,6 @@ export default function gosfc() {
     // bridge), so the scanner is shown that instead of Go source.
     config() {
       return {
-        // Generated modules are virtual and must never be externalized.
-        ssr: { noExternal: ["@goesm/runtime"] },
         optimizeDeps: {
           include: ["vue"],
           rolldownOptions: {
@@ -246,7 +243,6 @@ export default function gosfc() {
         }
         return id;
       }
-      if (source === "@goesm/runtime") return RT_PREFIX + "index.ts";
       // goesm's imports between packages, rewritten by addProgram.
       if (source.startsWith(TREE_PREFIX) && modules.has(source)) return source;
       // A file a //goesm:import directive imports (goesm.js made it absolute).
