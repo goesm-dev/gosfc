@@ -39,7 +39,7 @@ total := cart.Total(items)
 
 ## Usage (Astro)
 
-1. Add goesm and gosfc to your Go module as tools. Their versions are pinned by go.mod / go.sum.
+1. Add goesm and gosfc to your Go module as tools. Their versions are pinned by go.mod / go.sum. gosfc needs goesm v0.0.1-beta.3 or later.
 
    ```sh
    go get -tool github.com/goesm-dev/goesm/cmd/goesm@<version>
@@ -84,8 +84,8 @@ Components using `lang="ts"` or a plain `<script setup>` keep working alongside 
 ## Writing the Go block
 
 * Like Vue's `<script setup>`, the top level runs once, top to bottom, per component instance. You can write `x := ...`, `var`, `const`, `type`, and `func F() {...}`.
-* Top-level variables, constants, and functions are available in the template. When the template calls a Go function (for example `@click="Increment"`), the rendered output follows the Go values.
-* `import` takes Go packages only; the Go frontmatter of an `.astro` file can also import JavaScript modules, as described below. In a Vue component, Vue components, TypeScript and JavaScript come in through goesm's [`//goesm:import`](https://github.com/goesm-dev/goesm/blob/main/docs/js-imports.md) directive, before a `var` (a component, a class, any value) or a function without a body (a function, called with automatic conversion of its arguments and result). Both are template bindings like the block's other names. Their types may use imported and built-in types, not types declared in the block, since they are declared at package level. The directive needs goesm v0.0.1-beta.2 or later, the version in your go.mod; an older goesm does not recognize it.
+* Top-level variables, constants, and functions are available in the template. When the template calls a Go function (for example `@click="Increment"`), the rendered output follows the Go values. Values and the arguments and results of calls are converted as for goesm's [exported functions](https://github.com/goesm-dev/goesm/blob/main/docs/js-exports.md): strings, slices as arrays, structs as plain objects.
+* `import` takes Go packages only; the Go frontmatter of an `.astro` file can also import JavaScript modules, as described below. In a Vue component, Vue components, TypeScript and JavaScript come in through goesm's [`//goesm:import`](https://github.com/goesm-dev/goesm/blob/main/docs/js-imports.md) directive, before a `var` (a component, a class, any value) or a function without a body (a function, called with automatic conversion of its arguments and result). Both are template bindings like the block's other names. Their types may use imported and built-in types, not types declared in the block, since they are declared at package level.
 
   ```vue
   <template>
@@ -182,15 +182,15 @@ Limitations:
 
 ## Importing Go from JavaScript
 
-A `.js`, `.ts` or `.astro` module inside a Go module can import a Go package directly with a `go:` specifier. gosfc compiles the package with goesm in the Go module of the importing file, and Vite bundles it like any other module. The API is goesm's: exported functions and types, with Go strings and slices converted through the runtime each module re-exports as `$runtime`.
+A `.js`, `.ts` or `.astro` module inside a Go module can import a Go package directly with a `go:` specifier. gosfc compiles the package with goesm in the Go module of the importing file, and Vite bundles it like any other module. The API is goesm's [JS calling ABI](https://github.com/goesm-dev/goesm/blob/main/docs/js-exports.md): the exported functions take and return plain JavaScript values (strings, arrays, objects).
 
 ```astro
 ---
 // src/pages/[slug].astro
-import { Slugs, $runtime as rt } from "go:example.com/app/content";
+import { Slugs } from "go:example.com/app/content";
 
 export function getStaticPaths() {
-  return rt.toArray(Slugs()).map((s) => ({ params: { slug: rt.toJSString(s) } }));
+  return Slugs().map((slug) => ({ params: { slug } }));
 }
 ---
 ```
