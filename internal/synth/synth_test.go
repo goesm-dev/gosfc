@@ -267,3 +267,50 @@ func b() int
 		t.Errorf("diagnostics = %q, want %q", got, want)
 	}
 }
+
+// TestJSImportPositions checks that a directive and an indented declaration
+// with a comment between them keep their own .vue lines and columns, and
+// that a blank line after a directive is reported.
+func TestJSImportPositions(t *testing.T) {
+	src := `
+import "syscall/js"
+
+//goesm:import "./a.ts" a
+// a is the a export.
+    var A js.Value
+
+//goesm:import "./b.ts" b
+
+var B js.Value
+`
+	out := build(t, src)
+	if len(out.Diagnostics) != 1 || out.Diagnostics[0].Line != 17 || !strings.Contains(out.Diagnostics[0].Message, "without a blank line") {
+		t.Errorf("diagnostics = %+v, want one about the blank line at line 17", out.Diagnostics)
+	}
+	fset := token.NewFileSet()
+	f, err := parser.ParseFile(fset, "gen.go", out.Go, parser.ParseComments)
+	if err != nil {
+		t.Fatalf("synthetic file does not parse: %v\n%s", err, out.Go)
+	}
+	for _, d := range f.Decls {
+		g, ok := d.(*ast.GenDecl)
+		if !ok || g.Tok != token.VAR || g.Specs[0].(*ast.ValueSpec).Names[0].Name != "A" {
+			continue
+		}
+		var texts []string
+		for _, c := range g.Doc.List {
+			if !strings.HasPrefix(c.Text, "//line ") {
+				texts = append(texts, fset.Position(c.Pos()).String()+" "+c.Text)
+			}
+		}
+		want := []string{vue + `:13:1 //goesm:import "./a.ts" a`, vue + ":14:1 // a is the a export."}
+		if !reflect.DeepEqual(texts, want) {
+			t.Errorf("doc of A = %q, want %q", texts, want)
+		}
+		if got := fset.Position(g.Pos()).String(); got != vue+":15:5" {
+			t.Errorf("declaration at %s, want %s:15:5", got, vue)
+		}
+		return
+	}
+	t.Errorf("no var A in\n%s", out.Go)
+}

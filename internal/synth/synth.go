@@ -51,6 +51,7 @@ import (
 	"fmt"
 	"go/scanner"
 	"go/token"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -225,16 +226,19 @@ func Build(in Input) Output {
 				diag(d.off, "//goesm:import must precede a function without a body or a var declaration")
 				continue
 			}
-			// The directive goes on the line right before the declaration
-			// (no //line comment between them, which would end the doc
-			// comment), numbered so that the declaration keeps its .vue
-			// position.
-			l, _ := pos(it.start())
-			_, c := pos(d.off)
-			directive(&imported, l-1, c)
-			imported.WriteString(d.lit)
-			imported.WriteByte('\n')
-			imported.WriteString(text(it.start(), it.end()))
+			// The directive and the declaration are copied together with
+			// the comments between them, after one //line comment: a
+			// //line comment between them would end the doc comment goesm
+			// reads, and the copy keeps every line and column of both.
+			// A blank line ends the doc comment, as in a Go file, so it is
+			// an error rather than a directive goesm would not see.
+			if lines := strings.Split(text(d.end, it.start()), "\n"); len(lines) > 2 && slices.ContainsFunc(lines[1:len(lines)-1], func(l string) bool { return strings.TrimSpace(l) == "" }) {
+				diag(d.off, "//goesm:import must be directly followed by the declaration, without a blank line")
+				continue
+			}
+			l, c := pos(d.off)
+			directive(&imported, l, c)
+			imported.WriteString(text(d.off, it.end()))
 			imported.WriteByte('\n')
 			kind := "var"
 			if t0.tok == token.FUNC {
