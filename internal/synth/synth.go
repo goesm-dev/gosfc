@@ -70,19 +70,35 @@ const PropsType = "Props"
 
 // Input describes one <script setup lang="go"> block.
 type Input struct {
-	File    string `json:"file"`    // absolute path of the .vue file
+	File    string `json:"file"`    // absolute path of the .vue or .astro file
 	Package string `json:"package"` // Go package name for the synthetic file
 	Source  string `json:"source"`  // block content
 	Line    int    `json:"line"`    // 1-based position of Source[0] in File
 	Column  int    `json:"column"`
 	TagLine int    `json:"tagLine"` // position of the <script setup lang="go"> tag,
 	TagCol  int    `json:"tagColumn"`
+	// Block is how the block is written, for messages. It defaults to
+	// `<script setup lang="go">`.
+	Block string `json:"block"`
+	// JSImports allows imports of JavaScript modules (see IsJSImport), as in
+	// the Go frontmatter of an .astro file. They are left out of the Go file
+	// and reported in Output.JSImports.
+	JSImports bool `json:"jsImports"`
+}
+
+// JSImport is `import Name "path"` of a JavaScript module: a default import,
+// or a side-effect import when Name is "_".
+type JSImport struct {
+	Name string `json:"name"`
+	Path string `json:"path"`
 }
 
 // Binding is a top-level name of the block exposed to the template.
 type Binding struct {
-	Name string `json:"name"`
-	Kind string `json:"kind"` // "var", "const" or "func"
+	Name   string `json:"name"`
+	Kind   string `json:"kind"` // "var", "const" or "func"
+	Line   int    `json:"line"` // where the name is declared
+	Column int    `json:"column"`
 }
 
 // Diagnostic is a gosfc-level error at a .vue position. Go syntax and type
@@ -100,6 +116,17 @@ type Output struct {
 	Diagnostics []Diagnostic `json:"diagnostics"`
 	// Props is true when the block declares `type Props struct {...}`.
 	Props bool `json:"props"`
+	// JSImports are the imports of JavaScript modules, in source order.
+	JSImports []JSImport `json:"jsImports"`
+}
+
+// IsJSImport reports whether an import path names a JavaScript module rather
+// than a Go package: a relative or absolute path ("./Card.vue"), a scoped npm
+// package ("@scope/pkg"), or a specifier with a scheme ("astro:assets"). None
+// of them is a valid Go import path.
+func IsJSImport(path string) bool {
+	return strings.HasPrefix(path, "./") || strings.HasPrefix(path, "../") || strings.HasPrefix(path, "/") ||
+		strings.HasPrefix(path, "@") || strings.Contains(path, ":")
 }
 
 type tok struct {
@@ -119,6 +146,10 @@ func (it item) end() int   { return it.toks[len(it.toks)-1].end }
 // Build builds the synthetic file.
 func Build(in Input) Output {
 	var out Output
+	block := in.Block
+	if block == "" {
+		block = `<script setup lang="go">`
+	}
 	fset := token.NewFileSet()
 	src := []byte(in.Source)
 	file := fset.AddFile(in.File, -1, len(src))
@@ -187,12 +218,13 @@ func Build(in Input) Output {
 	fmt.Fprintf(&header, "package %s\n", in.Package)
 
 	seen := map[string]bool{}
-	bind := func(name, kind string) {
-		if name == "_" || seen[name] {
+	bind := func(name tok, kind string) {
+		if name.lit == "_" || seen[name.lit] {
 			return
 		}
-		seen[name] = true
-		out.Bindings = append(out.Bindings, Binding{Name: name, Kind: kind})
+		seen[name.lit] = true
+		l, c := pos(name.off)
+		out.Bindings = append(out.Bindings, Binding{Name: name.lit, Kind: kind, Line: l, Column: c})
 	}
 	text := func(from, to int) string { return in.Source[from:to] }
 
@@ -202,19 +234,26 @@ func Build(in Input) Output {
 		switch t0.tok {
 		case token.IMPORT:
 			if importsDone {
-				diag(t0.off, "imports must come before other code in <script setup lang=\"go\">")
+				diag(t0.off, "imports must come before other code in %s", block)
 				continue
+			}
+			src := text(it.start(), it.end())
+			if in.JSImports {
+				var ok bool
+				if src, ok = splitJSImports(it, src, &out, diag); !ok {
+					continue
+				}
 			}
 			l, c := pos(it.start())
 			directive(&header, l, c)
-			header.WriteString(text(it.start(), it.end()))
+			header.WriteString(src)
 			header.WriteByte('\n')
 			continue
 		case token.FUNC:
 			if len(it.toks) > 1 && it.toks[1].tok == token.IDENT {
 				name := it.toks[1]
 				if len(it.toks) > 2 && it.toks[2].tok == token.LBRACK {
-					diag(t0.off, "generic function %s cannot be declared in <script setup lang=\"go\">; declare it in a Go package", name.lit)
+					diag(t0.off, "generic function %s cannot be declared in %s; declare it in a Go package", name.lit, block)
 					continue
 				}
 				lbrace := bodyStart(it.toks[2:])
@@ -231,12 +270,12 @@ func Build(in Input) Output {
 				fmt.Fprintf(&hoisted, "var %s func%s\n", name.lit, sig)
 				directive(&body, l, c)
 				fmt.Fprintf(&body, "%s=func%s%s\n", name.lit, strings.Repeat(" ", name.off-t0.end-1), text(name.end, it.end()))
-				bind(name.lit, "func")
+				bind(name, "func")
 				importsDone = true
 				continue
 			}
 			if isMethod(it.toks) {
-				diag(t0.off, "methods cannot be declared in <script setup lang=\"go\">; declare them in a Go package")
+				diag(t0.off, "methods cannot be declared in %s; declare them in a Go package", block)
 				continue
 			}
 		case token.CONST, token.TYPE:
@@ -311,6 +350,56 @@ func Build(in Input) Output {
 	return out
 }
 
+// splitJSImports takes the imports of JavaScript modules out of an import
+// declaration. It returns the declaration's text with their specs blanked
+// out, and false when nothing of the declaration is left for Go.
+func splitJSImports(it item, src string, out *Output, diag func(int, string, ...any)) (string, bool) {
+	b := []byte(src)
+	base := it.start()
+	toks := it.toks[1:]
+	grouped := len(toks) > 0 && toks[0].tok == token.LPAREN
+	goSpecs := 0
+	var spec []tok
+	flush := func() {
+		if len(spec) == 0 {
+			return
+		}
+		last := spec[len(spec)-1]
+		path, err := strconv.Unquote(last.lit)
+		if last.tok != token.STRING || err != nil || !IsJSImport(path) {
+			goSpecs++
+			spec = nil
+			return
+		}
+		switch {
+		case len(spec) != 2 || spec[0].tok != token.IDENT:
+			diag(spec[0].off, "the import of JavaScript module %s needs a name: import Name %s", last.lit, last.lit)
+		default:
+			out.JSImports = append(out.JSImports, JSImport{Name: spec[0].lit, Path: path})
+		}
+		for i := spec[0].off - base; i < last.end-base; i++ {
+			if b[i] != '\n' {
+				b[i] = ' '
+			}
+		}
+		spec = nil
+	}
+	for _, t := range toks {
+		switch t.tok {
+		case token.LPAREN, token.RPAREN:
+			if grouped {
+				continue
+			}
+		case token.SEMICOLON:
+			flush()
+			continue
+		}
+		spec = append(spec, t)
+	}
+	flush()
+	return string(b), grouped || goSpecs > 0
+}
+
 // bodyStart returns the offset of the "{" that opens a function body in the
 // tokens after the function name: the first "{" at depth 0 that does not
 // belong to a struct or interface type in the signature.
@@ -357,14 +446,14 @@ func isMethod(toks []tok) bool {
 
 // declNames returns the names declared by the tokens after var or const:
 // `a, b T = ...` or a parenthesized group of such specs.
-func declNames(toks []tok) []string {
+func declNames(toks []tok) []tok {
 	if len(toks) == 0 {
 		return nil
 	}
 	if toks[0].tok != token.LPAREN {
 		return identList(toks)
 	}
-	var names []string
+	var names []tok
 	depth := 0
 	var spec []tok
 	for _, t := range toks {
@@ -393,13 +482,13 @@ func declNames(toks []tok) []string {
 	return names
 }
 
-func identList(toks []tok) []string {
-	var names []string
+func identList(toks []tok) []tok {
+	var names []tok
 	for i := 0; i < len(toks); i += 2 {
 		if toks[i].tok != token.IDENT {
 			break
 		}
-		names = append(names, toks[i].lit)
+		names = append(names, toks[i])
 		if i+1 >= len(toks) || toks[i+1].tok != token.COMMA {
 			break
 		}
@@ -409,7 +498,7 @@ func identList(toks []tok) []string {
 
 // defineNames returns the names of a short variable declaration
 // `a, b := ...`, or nil for any other statement.
-func defineNames(toks []tok) []string {
+func defineNames(toks []tok) []tok {
 	names := identList(toks)
 	n := 2*len(names) - 1
 	if len(names) == 0 || n >= len(toks) || toks[n].tok != token.DEFINE {
