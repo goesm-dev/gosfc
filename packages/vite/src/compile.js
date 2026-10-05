@@ -31,7 +31,7 @@ import { findGoModule, goTool, readOnlyGoDirs, run } from "./gomod.js";
 
 // The bridge module the generated script imports (runtime/bridge.js). It is a
 // virtual id rather than a package specifier so that Vite's SSR never
-// externalizes it: it imports @goesm/runtime, which only this plugin resolves.
+// externalizes it: it imports gosfc:convert.js, which only this plugin resolves.
 export const RUNTIME_ID = "gosfc:bridge.js";
 // The runtime of a Go frontmatter (runtime/astro.js).
 export const ASTRO_RUNTIME_ID = "gosfc:astro.js";

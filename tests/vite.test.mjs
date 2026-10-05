@@ -53,7 +53,7 @@ test("production build: source maps lead from the bundle back to .vue and .go", 
   assert.ok(call.source.endsWith("src/Summary.vue"), call.source);
   assert.equal(call.line, 17); // total := cart.Total(items)
 
-  const mul = originalPositionFor(map, find(code, ".Price * "));
+  const mul = originalPositionFor(map, find(code, "Price * ")); // item.Price, or item$Price when goesm keeps the fields in locals
   assert.ok(mul.source.endsWith("src/cart/pkg/price.go"), mul.source);
   assert.equal(mul.line, 7); // total += item.Price * item.Quantity
   rmSync(outDir, { recursive: true, force: true });
@@ -94,6 +94,13 @@ test("Props: attributes reach the Go block as a typed struct", async (t) => {
   assert.equal(await render({ name: "Go", times: 2, "html-note": "!" }), '<p class="greet">hi Go hi Go !</p>');
   assert.equal(await render({ name: "ゴー", times: "1", loud: "" }), '<p class="greet">HI ゴー </p>');
   assert.equal(await render({}), '<p class="greet"></p>');
+});
+
+test("the template calls Go functions with structs and slices", async (t) => {
+  const server = await createServer({ root, configFile: false, logLevel: "silent", plugins: plugins(), appType: "custom", server: { middlewareMode: true, hmr: false } });
+  t.after(() => server.close());
+  const { default: Receipt } = await server.ssrLoadModule("/src/Receipt.vue");
+  assert.equal(await renderToString(createSSRApp(Receipt)), "<p>3 × 120 / 200</p>");
 });
 
 test("//goesm:import: the Go block uses a Vue component and a TypeScript function", async (t) => {

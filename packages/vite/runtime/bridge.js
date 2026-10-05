@@ -1,8 +1,8 @@
 // Template bindings for <script setup lang="go">.
 //
 // The lowered setup function (GosfcSetup) runs the Go block once per component
-// instance and returns a lookup function: binding name -> current value boxed
-// in a Go interface (conversions: convert.js).
+// instance and returns a lookup function: binding name -> current value,
+// converted for JavaScript by goesm's JS calling ABI (convert.js).
 //
 // Each binding is exposed to Vue as a computed ref. Go code mutates ordinary
 // Go variables, which Vue cannot observe, so every call of a Go function made
@@ -19,10 +19,10 @@ import { computed, shallowRef, useAttrs } from "vue";
 import { fromGo, readProps } from "gosfc:convert.js";
 
 /**
- * @param {(props?: any) => (name: string) => { t: any, v: any } | null} setup
+ * @param {(props?: any) => (name: string) => unknown} setup
  * @param {string} _version hash of the lowered Go code; only there so that
  *   the generated script changes when the Go code does (HMR)
- * @param {() => { t: any, v: any }} [props] zero value of the block's Props
+ * @param {() => Record<string, unknown>} [props] zero value of the block's Props
  */
 export function useGo(setup, _version, props) {
   const lookup = props ? setup(readProps(props(), useAttrs())) : setup();
