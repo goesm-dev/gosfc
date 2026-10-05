@@ -11,7 +11,7 @@ tool (
 
 require (
 	github.com/evanw/esbuild v0.28.2 // indirect
-	github.com/goesm-dev/goesm v0.0.1-beta.0.0.20261005060500-4c764c5147c8 // indirect
+	github.com/goesm-dev/goesm v0.0.1-beta.1.0.20261005083323-e6f011a5bea6 // indirect
 	github.com/goesm-dev/gosfc v0.0.0-00010101000000-000000000000 // indirect
 	golang.org/x/mod v0.41.0 // indirect
 	golang.org/x/sync v0.23.0 // indirect
