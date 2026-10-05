@@ -1,0 +1,15 @@
+---go
+import cart "example.com/app/src/features/cart/pkg"
+
+// Astro.props arrive as Props: label="..." fills Label, price={...} Price.
+type Props struct {
+	Label    string
+	Price    int
+	Quantity int
+}
+
+label := props.Label
+subtotal := cart.Total([]cart.Item{{Price: props.Price, Quantity: props.Quantity}})
+---
+
+<li class="line">{label}: {subtotal}</li>

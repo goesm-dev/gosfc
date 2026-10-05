@@ -1,10 +1,17 @@
-// @gosfc/vite: compiles <script setup lang="go"> in Vue SFCs through goesm.
+// @gosfc/vite: compiles <script setup lang="go"> in Vue SFCs, and the Go
+// frontmatter (---go) and <script lang="go"> of .astro files, through goesm.
 //
 // The plugin runs before @vitejs/plugin-vue (enforce: "pre") and only touches
 // .vue files that contain <script setup lang="go">. Everything else, including
 // Vue + TypeScript components, reaches @vitejs/plugin-vue unchanged. It does
 // not compile templates or styles, bundle, or render: plugin-vue, Vite,
 // Rolldown and Vue do.
+//
+// .astro files with Go are rewritten when they are loaded rather than in
+// transform, because Astro's own plugin compiles them in its transform, which
+// may run first. Astro reads the source of an .astro file through the plugin
+// container's load as well (for its sub-requests), so it always sees the
+// rewritten file: TypeScript frontmatter and plain <script> elements.
 //
 // It also serves the TypeScript tree goesm produced, as virtual modules whose
 // ids follow goesm's output layout below gosfc:goesm/:
@@ -15,6 +22,12 @@
 //   "./x.ts", "../y.ts"   -> resolved relative to the importing virtual id
 //                            (the runtime's files import each other this way)
 //   gosfc:bridge.js       -> runtime/bridge.js (template bindings)
+//   gosfc:astro.js        -> runtime/astro.js (Go frontmatter bindings)
+//   gosfc:convert.js      -> runtime/convert.js (Go <-> JS values, used by both)
+//   gosfc:astro-script/<n>/<file>.js
+//                         -> the n-th <script lang="go"> of an .astro file, compiled
+//                            when requested (also in Astro's client build, which has
+//                            its own plugin instance)
 // The ids end in .ts so that Vite's own TypeScript transform handles them,
 // and each load returns goesm's source map (generated TS -> .vue / .go),
 // which Vite composes into the final JS -> .vue / .go map.
@@ -32,7 +45,18 @@ import { createHash } from "node:crypto";
 import { existsSync, readFileSync, statSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { compilePackage, compileSfc, mayHaveGoSetup, placeholderSfc, RUNTIME_ID } from "./compile.js";
+import {
+  ASTRO_RUNTIME_ID,
+  compileAstro,
+  compileAstroScript,
+  compilePackage,
+  compileSfc,
+  mayHaveGoAstro,
+  mayHaveGoSetup,
+  parseAstroScriptId,
+  placeholderSfc,
+  RUNTIME_ID,
+} from "./compile.js";
 
 const PREFIX = "gosfc:";
 const TREE_PREFIX = PREFIX + "goesm/";
@@ -44,7 +68,16 @@ const GO_IMPORT = /["']go:/;
 const GO_IMPORTS = /\b(?:from|import)\s*\(?\s*(["'])go:([^"'\s]+)\1/g;
 // Relative specifiers in goesm's modules: import / export ... from "./x.ts", import("../y.ts").
 const REL_IMPORTS = /(\b(?:from|import)\s*\(?\s*)"(\.\.?\/[^"]+)"/g;
-const BRIDGE_FILE = fileURLToPath(new URL("../runtime/bridge.js", import.meta.url));
+const CONVERT_ID = PREFIX + "convert.js";
+/** virtual id -> runtime file of gosfc */
+const RUNTIME_FILES = new Map(
+  [
+    [BRIDGE_ID, "bridge.js"],
+    [ASTRO_RUNTIME_ID, "astro.js"],
+    [CONVERT_ID, "convert.js"],
+  ].map(([id, f]) => [id, fileURLToPath(new URL("../runtime/" + f, import.meta.url))]),
+);
+const GO_KEYWORDS = new Set(["break", "case", "chan", "const", "continue", "default", "defer", "else", "fallthrough", "for", "func", "go", "goto", "if", "import", "interface", "map", "package", "range", "return", "select", "struct", "switch", "type", "var"]);
 
 /**
  * @returns {import("vite").Plugin}
@@ -58,7 +91,8 @@ export default function gosfc() {
   const modules = new Map();
   /** import path + "\0" + importing file -> virtual id of the package's module in that file's program */
   const entries = new Map();
-  /** .go file -> .vue files (and JS modules importing go:) whose Go code depends on it */
+  /** .go file -> .vue / .astro files, JS modules importing go: and ids of
+   * client scripts of .astro files whose Go code depends on it */
   const goDependents = new Map();
 
   /** .vue file -> last successful compilation, keyed by its source */
@@ -107,6 +141,38 @@ export default function gosfc() {
     return result;
   }
 
+  // The same for .astro files and their client scripts (keyed by virtual id).
+  const astroCompiled = new Map();
+  /**
+   * @template T
+   * @param {string} key
+   * @param {string} code
+   * @param {() => Promise<T>} fn
+   * @returns {Promise<T>}
+   */
+  async function cached(key, code, fn) {
+    const c = astroCompiled.get(key);
+    if (c && c.code === code && (!c.result || c.stamp === goStamp(c.result.goFiles))) return c.result;
+    const result = await fn();
+    astroCompiled.set(key, { code, result, stamp: result ? goStamp(result.goFiles) : "" });
+    return result;
+  }
+  // register for compileAstro: the importing module is the .astro file (or
+  // the client script's virtual id).
+  const register = (importer) => (res, importPath) => {
+    addProgram(res, importer);
+    return entries.get(importPath + "\0" + importer);
+  };
+  const compileAstroFile = (code, id) => cached(id, code, () => compileAstro(code, id, { root: config.root, register: register(id) }));
+
+  /** Reports a GosfcError at its .vue / .astro position. */
+  function fail(ctx, e) {
+    if (e && e.name === "GosfcError") {
+      ctx.error({ message: e.message, id: e.id, loc: e.loc, frame: e.frame, plugin: "gosfc" });
+    }
+    throw e;
+  }
+
   /** import path + "\0" + importer -> stamp of the .go files it was compiled from */
   const jsCompiled = new Map();
   async function compileImport(importPath, importer, ctx) {
@@ -140,9 +206,10 @@ export default function gosfc() {
               {
                 name: "gosfc:scan",
                 load: {
-                  filter: { id: /\.vue$/ },
+                  filter: { id: /\.(?:vue|astro)$/ },
                   handler(id) {
                     const code = readFileSync(id, "utf8");
+                    if (id.endsWith(".astro")) return mayHaveGoAstro(code) ? scanAstro(code) : null;
                     return mayHaveGoSetup(code) ? 'import "vue";\nexport default {};\n' : null;
                   },
                 },
@@ -162,7 +229,8 @@ export default function gosfc() {
     },
 
     async resolveId(source, importer) {
-      if (source === BRIDGE_ID) return BRIDGE_ID;
+      if (RUNTIME_FILES.has(source)) return source;
+      if (parseAstroScriptId(source)) return source;
       if (source.startsWith("go:")) {
         const importPath = source.slice(3);
         // The glue of a .vue file imports the package its transform just
@@ -190,8 +258,53 @@ export default function gosfc() {
       return null;
     },
 
-    load(id) {
-      if (id === BRIDGE_ID) return readFileSync(BRIDGE_FILE, "utf8");
+    async load(id) {
+      if (RUNTIME_FILES.has(id)) return readFileSync(RUNTIME_FILES.get(id), "utf8");
+      const script = parseAstroScriptId(id);
+      if (script) {
+        let code;
+        try {
+          code = readFileSync(script.file, "utf8");
+        } catch {
+          return null;
+        }
+        let result;
+        try {
+          result = await cached(id, code, () => compileAstroScript(script.file, script.index, { root: config.root, code, register: register(id) }));
+        } catch (e) {
+          fail(this, e);
+        }
+        this.addWatchFile(script.file);
+        for (const f of result.goFiles) {
+          addGoDependent(f, id);
+          this.addWatchFile(f);
+        }
+        return { code: result.code, map: null };
+      }
+      if (id.endsWith(".astro") && !id.includes("?") && !id.startsWith("\0")) {
+        // Astro replaces .astro modules with a stub in the browser; their Go
+        // runs on the server only.
+        if (this.environment?.config?.consumer === "client") return null;
+        let code;
+        try {
+          code = readFileSync(id, "utf8");
+        } catch {
+          return null;
+        }
+        if (!mayHaveGoAstro(code)) return null;
+        let result;
+        try {
+          result = await compileAstroFile(code, id);
+        } catch (e) {
+          fail(this, e);
+        }
+        if (!result) return null;
+        for (const f of result.goFiles) {
+          addGoDependent(f, id);
+          this.addWatchFile(f);
+        }
+        return { code: result.code, map: result.map };
+      }
       if (!id.startsWith(PREFIX)) return null;
       const m = modules.get(id);
       if (!m) return null;
@@ -213,10 +326,7 @@ export default function gosfc() {
       try {
         result = await compile(code, id);
       } catch (e) {
-        if (e && e.name === "GosfcError") {
-          this.error({ message: e.message, id: e.id, loc: e.loc, frame: e.frame, plugin: "gosfc" });
-        }
-        throw e;
+        fail(this, e);
       }
       if (!result) return null;
 
@@ -238,7 +348,25 @@ export default function gosfc() {
     //
     // A change to a .go file of a package used by a component re-runs the
     // components that depend on it, which plugin-vue then reloads.
+    //
+    // Astro's HMR compares the old and new source of an .astro file (to update
+    // styles only when only styles changed); it is shown the rewritten source
+    // too. A .go edit invalidates the .astro files and client scripts using
+    // the package.
     async handleHotUpdate(ctx) {
+      if (ctx.file.endsWith(".astro")) {
+        const read = ctx.read;
+        ctx.read = async () => {
+          const raw = await read();
+          if (!mayHaveGoAstro(raw)) return raw;
+          try {
+            return (await compileAstroFile(raw, ctx.file))?.code ?? raw;
+          } catch {
+            return raw; // the error is reported when the file is loaded again
+          }
+        };
+        return;
+      }
       if (ctx.file.endsWith(".vue")) {
         const read = ctx.read;
         ctx.read = async () => {
@@ -259,7 +387,9 @@ export default function gosfc() {
       const mods = [];
       for (const v of vues) {
         compiled.delete(v);
-        for (const mod of server.moduleGraph.getModulesByFile(v) ?? []) {
+        astroCompiled.delete(v);
+        const byId = server.moduleGraph.getModuleById(v);
+        for (const mod of [...(server.moduleGraph.getModulesByFile(v) ?? []), ...(byId ? [byId] : [])]) {
           if (mod.id && !mod.id.includes("?")) {
             server.moduleGraph.invalidateModule(mod, new Set(), ctx.timestamp, true);
             mods.push(mod);
@@ -271,4 +401,27 @@ export default function gosfc() {
   };
 }
 
-export { compileSfc } from "./compile.js";
+/**
+ * What Vite's dependency scanner is shown of an .astro file with Go: the
+ * JavaScript imports of its Go frontmatter and the imports of its other
+ * <script> elements (the scanner would read a Go script as TypeScript).
+ */
+function scanAstro(code) {
+  const specs = new Set();
+  const fm = /^\s*---go[ \t]*\r?\n([\s\S]*?)^---/m.exec(code);
+  if (fm) {
+    for (const m of fm[1].matchAll(/(?:^|[\s(;])([A-Za-z_]\w*)\s+"([^"\\]+)"/g)) {
+      const p = m[2];
+      if (!GO_KEYWORDS.has(m[1]) && (/^(?:\.{0,2}\/|@)/.test(p) || p.includes(":"))) specs.add(p);
+    }
+  }
+  for (const m of code.matchAll(/<script\b([^>]*)>([\s\S]*?)<\/script\s*>/g)) {
+    if (/\slang\s*=\s*(["']?)go\1(?![\w-])/.test(m[1])) continue;
+    const src = /\ssrc\s*=\s*["']([^"']+)["']/.exec(m[1]);
+    if (src) specs.add(src[1]);
+    for (const i of m[2].matchAll(/\b(?:from|import)\s*\(?\s*(["'])([^"']+)\1/g)) specs.add(i[2]);
+  }
+  return [...specs].map((p) => `import ${JSON.stringify(p)};\n`).join("") + "export default {};\n";
+}
+
+export { compileAstro, compileSfc } from "./compile.js";

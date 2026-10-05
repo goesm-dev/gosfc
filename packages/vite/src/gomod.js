@@ -67,6 +67,26 @@ export function goTool(moduleDir, name) {
   return p;
 }
 
+/** @type {Map<string, Promise<string[]>>} */
+const readOnlyCache = new Map();
+
+/**
+ * Returns the directories whose Go files do not change while the module is
+ * used, GOROOT and the module cache, so that they are not watched.
+ * @param {string} moduleDir
+ * @returns {Promise<string[]>}
+ */
+export function readOnlyGoDirs(moduleDir) {
+  let p = readOnlyCache.get(moduleDir);
+  if (!p) {
+    p = run("go", ["env", "GOROOT", "GOMODCACHE"], { cwd: moduleDir }).then((r) =>
+      r.code === 0 ? r.stdout.split("\n").map((s) => s.trim()).filter(Boolean) : [],
+    );
+    readOnlyCache.set(moduleDir, p);
+  }
+  return p;
+}
+
 /**
  * Runs a command and collects its output.
  * @param {string} cmd

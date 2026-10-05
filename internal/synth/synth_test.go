@@ -169,7 +169,7 @@ func names(bs []Binding) []string {
 
 // //goesm:import declarations are moved to package level with their
 // directive, where goesm reads them; they are bindings like any other.
-func TestJSImports(t *testing.T) {
+func TestGoesmImports(t *testing.T) {
 	src := `
 import "syscall/js"
 
@@ -242,10 +242,10 @@ z := 1
 	}
 }
 
-// TestJSImportMisplaced checks that a //goesm:import with no declaration
+// TestGoesmImportMisplaced checks that a //goesm:import with no declaration
 // after it, or a second one before the same declaration, is reported
 // rather than dropped.
-func TestJSImportMisplaced(t *testing.T) {
+func TestGoesmImportMisplaced(t *testing.T) {
 	src := `
 //goesm:import "./a.ts" a
 //goesm:import "./b.ts" b
@@ -268,10 +268,10 @@ func b() int
 	}
 }
 
-// TestJSImportPositions checks that a directive and an indented declaration
+// TestGoesmImportPositions checks that a directive and an indented declaration
 // with a comment between them (holding a blank line) keep their own .vue lines and columns, and
 // that a blank line after a directive is reported.
-func TestJSImportPositions(t *testing.T) {
+func TestGoesmImportPositions(t *testing.T) {
 	src := `
 import "syscall/js"
 
@@ -315,4 +315,55 @@ var B js.Value
 		return
 	}
 	t.Errorf("no var A in\n%s", out.Go)
+}
+
+func TestJSImports(t *testing.T) {
+	src := `
+import Card "./Card.vue"
+import (
+	"strings"
+	Layout "../layouts/Base.astro"
+	_ "@fontsource/inter"
+)
+import Image "astro:assets"
+
+title := strings.ToUpper("x")
+`
+	out := Build(Input{File: "/app/src/pages/index.astro", Package: "index_astro", Source: src, Line: 2, Column: 1, TagLine: 1, TagCol: 1, Block: "the Go frontmatter", JSImports: true})
+	if len(out.Diagnostics) > 0 {
+		t.Fatalf("diagnostics: %v", out.Diagnostics)
+	}
+	want := []JSImport{{"Card", "./Card.vue"}, {"Layout", "../layouts/Base.astro"}, {"_", "@fontsource/inter"}, {"Image", "astro:assets"}}
+	if !reflect.DeepEqual(out.JSImports, want) {
+		t.Errorf("JSImports = %v, want %v", out.JSImports, want)
+	}
+	if errs := check(t, out); len(errs) > 0 {
+		t.Errorf("type errors: %v\n%s", errs, out.Go)
+	}
+	if want := []Binding{{Name: "title", Kind: "var", Line: 11, Column: 1}}; !reflect.DeepEqual(out.Bindings, want) {
+		t.Errorf("Bindings = %+v, want %+v", out.Bindings, want)
+	}
+	if strings.Contains(out.Go, `Card.vue"`) || strings.Contains(out.Go, `"astro:assets"`) {
+		t.Errorf("JavaScript imports left in the Go file:\n%s", out.Go)
+	}
+}
+
+func TestJSImportErrors(t *testing.T) {
+	src := "import \"./Card.vue\"\nimport . \"./x.js\"\n"
+	out := Build(Input{File: "/app/src/pages/index.astro", Package: "index_astro", Source: src, Line: 2, Column: 1, TagLine: 1, TagCol: 1, JSImports: true})
+	var got []string
+	for _, d := range out.Diagnostics {
+		got = append(got, fmt.Sprintf("%d:%d: %s", d.Line, d.Column, d.Message))
+	}
+	want := []string{
+		`2:8: the import of JavaScript module "./Card.vue" needs a name: import Name "./Card.vue"`,
+		`3:8: the import of JavaScript module "./x.js" needs a name: import Name "./x.js"`,
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("diagnostics = %q, want %q", got, want)
+	}
+	// Without JSImports (a .vue block), such an import is left to Go, which rejects it.
+	if out := build(t, `import Card "./Card.vue"`); len(out.JSImports) > 0 || !strings.Contains(out.Go, "./Card.vue") {
+		t.Errorf("a .vue block took a JavaScript import: %+v", out)
+	}
 }

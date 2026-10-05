@@ -10,7 +10,7 @@ English | [日本語](README.ja.md)
 [![Astro 7](https://img.shields.io/badge/Astro-7-BC52EE?logo=astro&logoColor=white)](https://astro.build/)
 [![goesm](https://img.shields.io/badge/compiled%20by-goesm-00ADD8)](https://github.com/goesm-dev/goesm)
 
-An integration layer for using real Go in the `<script setup>` of Vue Single File Components.
+An integration layer for using real Go in the `<script setup>` of Vue Single File Components, and in the frontmatter and `<script>` of `.astro` files.
 
 ```vue
 <template>
@@ -33,7 +33,7 @@ total := cart.Total(items)
 </script>
 ```
 
-`.go` files are ordinary Go packages, and imports are ordinary Go imports. Go compilation is handled by [goesm](https://github.com/goesm-dev/goesm), SFCs and templates by the Vue tooling, builds by Vite, and pages and SSR by Astro. See [ARCHITECTURE.md](ARCHITECTURE.md) for the design.
+`.go` files are ordinary Go packages, and imports are ordinary Go imports. Go compilation is handled by [goesm](https://github.com/goesm-dev/goesm), SFCs and templates by the Vue tooling, `.astro` templates by Astro, builds by Vite, and pages and SSR by Astro. See [ARCHITECTURE.md](ARCHITECTURE.md) for the design.
 
 **Status: PoC.** What is not implemented yet is listed in ARCHITECTURE.md, section 11 ("Not yet implemented / open questions").
 
@@ -68,6 +68,8 @@ total := cart.Total(items)
    <Summary />
    ```
 
+   An `.astro` file can also be written in Go: see [Go in .astro files](#go-in-astro-files).
+
 To use gosfc with Vite alone, put `@gosfc/vite` before `@vitejs/plugin-vue`.
 
 ```js
@@ -83,7 +85,7 @@ Components using `lang="ts"` or a plain `<script setup>` keep working alongside 
 
 * Like Vue's `<script setup>`, the top level runs once, top to bottom, per component instance. You can write `x := ...`, `var`, `const`, `type`, and `func F() {...}`.
 * Top-level variables, constants, and functions are available in the template. When the template calls a Go function (for example `@click="Increment"`), the rendered output follows the Go values.
-* `import` takes Go packages only. Vue components, TypeScript and JavaScript come in through goesm's [`//goesm:import`](https://github.com/goesm-dev/goesm/blob/main/docs/js-imports.md) directive, before a `var` (a component, a class, any value) or a function without a body (a function, called with automatic conversion of its arguments and result). Both are template bindings like the block's other names. Their types may use imported and built-in types, not types declared in the block, since they are declared at package level. The directive needs goesm v0.0.1-beta.2 or later, the version in your go.mod; an older goesm does not recognize it.
+* `import` takes Go packages only; the Go frontmatter of an `.astro` file can also import JavaScript modules, as described below. In a Vue component, Vue components, TypeScript and JavaScript come in through goesm's [`//goesm:import`](https://github.com/goesm-dev/goesm/blob/main/docs/js-imports.md) directive, before a `var` (a component, a class, any value) or a function without a body (a function, called with automatic conversion of its arguments and result). Both are template bindings like the block's other names. Their types may use imported and built-in types, not types declared in the block, since they are declared at package level. The directive needs goesm v0.0.1-beta.2 or later, the version in your go.mod; an older goesm does not recognize it.
 
   ```vue
   <template>
@@ -114,6 +116,69 @@ Components using `lang="ts"` or a plain `<script setup>` keep working alongside 
   heading := strings.ToUpper(props.Title)
   </script>
   ```
+
+## Go in .astro files
+
+A frontmatter fence that opens with `---go` instead of `---` holds Go. It follows the rules of a Go block of a `.vue` file: the top level runs once per render (at build time, or per request with SSR), and its top-level variables, constants and functions are available in the template.
+
+```astro
+---go
+import (
+	"strconv"
+
+	cart "example.com/app/src/features/cart/pkg"
+	Line "../features/cart/Line.astro"
+	Summary "../features/cart/Summary.vue"
+)
+
+items := []cart.Item{
+	{Price: 120, Quantity: 3},
+	{Price: 80, Quantity: 1},
+}
+total := cart.Total(items)
+
+func Yen(n int) string {
+	return "¥" + strconv.Itoa(n)
+}
+---
+
+<Line label="Apples" price={120} quantity={3} />
+<p>Total: {Yen(total)} ({items.length} items)</p>
+<Summary />
+```
+
+* JavaScript modules (components, styles, npm packages) are imported with Go import syntax. `import Card "./Card.vue"` means `import Card from "./Card.vue"`, and `import _ "./global.css"` is a side-effect import. An import path is JavaScript when it starts with `./`, `../`, `/` or `@`, or contains `:` (such as `astro:assets`); any other path is a Go package.
+* `type Props struct {...}` receives `Astro.props`, with the same field names as the props of a `.vue` block (`Label` is read from `label`).
+* Values reach the template converted for JavaScript (strings, slices as arrays, structs as objects), and the template can call Go functions.
+* If the Go code blocks (channels, `time.Sleep`, ...), the frontmatter waits for it.
+
+A `<script lang="go">` in the template is Go that runs in the browser once per page, like Astro's processed `<script>`: Astro bundles it, and a component used several times includes it once. The template does not see its top-level names; use `syscall/js` to work with the DOM.
+
+```astro
+<button id="counter">0</button>
+
+<script lang="go">
+import (
+	"strconv"
+	"syscall/js"
+)
+
+count := 0
+button := js.Global().Get("document").Call("getElementById", "counter")
+button.Call("addEventListener", "click", js.FuncOf(func(this js.Value, args []js.Value) any {
+	count++
+	button.Set("textContent", strconv.Itoa(count))
+	return nil
+}))
+</script>
+```
+
+Limitations:
+
+* A Go frontmatter cannot export anything, so `getStaticPaths` and other exports need a TypeScript frontmatter. That frontmatter can still import Go with a `go:` specifier (next section).
+* Go sees nothing of the `Astro` global but the props. For `Astro.url`, `Astro.cookies`, redirects and so on, use a TypeScript frontmatter.
+* Go import syntax can write a default import or a side-effect import only. To use named exports of a JavaScript module, re-export them as the default export of a small module of your own and import that.
+* `<script lang="go">` takes no other attributes (`is:inline`, `define:vars`, ...).
 
 ## Importing Go from JavaScript
 
@@ -162,7 +227,7 @@ mise install
 pnpm install
 pnpm test                      # go test ./... and tests/*.test.mjs
 pnpm bench                     # bench/run.mjs: prints the Benchmark table, rewrites bench/results-*.svg
-cd examples/astro && pnpm build   # dist/index.html contains 「合計: 200」
+cd examples/astro && pnpm build   # dist/index.html contains 「合計: 200」, dist/go/index.html is src/pages/go.astro
 cd examples/astro && pnpm dev
 ```
 
