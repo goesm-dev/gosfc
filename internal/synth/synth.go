@@ -51,7 +51,6 @@ import (
 	"fmt"
 	"go/scanner"
 	"go/token"
-	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -232,7 +231,7 @@ func Build(in Input) Output {
 			// reads, and the copy keeps every line and column of both.
 			// A blank line ends the doc comment, as in a Go file, so it is
 			// an error rather than a directive goesm would not see.
-			if lines := strings.Split(text(d.end, it.start()), "\n"); len(lines) > 2 && slices.ContainsFunc(lines[1:len(lines)-1], func(l string) bool { return strings.TrimSpace(l) == "" }) {
+			if blankLine(text(d.end, it.start())) {
 				diag(d.off, "//goesm:import must be directly followed by the declaration, without a blank line")
 				continue
 			}
@@ -488,4 +487,27 @@ func defineNames(toks []tok) []string {
 		return nil
 	}
 	return names
+}
+
+// blankLine reports whether src, the text between a directive and the
+// declaration after it (white space and comments), has a blank line outside
+// its comments.
+func blankLine(src string) bool {
+	fset := token.NewFileSet()
+	file := fset.AddFile("", -1, len(src))
+	var s scanner.Scanner
+	s.Init(file, []byte(src), nil, scanner.ScanComments)
+	prev := 0
+	for {
+		p, t, lit := s.Scan()
+		if t != token.COMMENT {
+			break
+		}
+		off := file.Offset(p)
+		if strings.Count(src[prev:off], "\n") > 1 {
+			return true
+		}
+		prev = off + len(lit)
+	}
+	return strings.Count(src[prev:], "\n") > 1
 }
