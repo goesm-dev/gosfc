@@ -1,0 +1,22 @@
+name: Publish to npm
+
+# Publishes @gosfc/vite and @gosfc/astro when a GitHub release is published.
+# Authentication uses npm trusted publishing (OIDC); no NPM_TOKEN is needed
+# once each package lists this repository and workflow in its npm settings.
+on:
+  release:
+    types: [published]
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: jdx/mise-action@v2
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm test
+      - run: pnpm --filter @gosfc/vite --filter @gosfc/astro publish --access public --no-git-checks
