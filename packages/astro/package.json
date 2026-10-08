@@ -1,13 +1,25 @@
 {
   "name": "@gosfc/astro",
-  "version": "0.0.0",
+  "version": "0.0.1-beta.0",
   "description": "Astro integration for gosfc: @astrojs/vue plus @gosfc/vite",
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/goesm-dev/gosfc.git",
+    "directory": "packages/astro"
+  },
+  "homepage": "https://github.com/goesm-dev/gosfc#readme",
+  "publishConfig": {
+    "access": "public",
+    "provenance": true
+  },
   "type": "module",
   "exports": {
     ".": "./src/index.js"
   },
-  "files": ["src"],
+  "files": [
+    "src"
+  ],
   "dependencies": {
     "@gosfc/vite": "workspace:*"
   },

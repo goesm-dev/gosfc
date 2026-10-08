@@ -1,13 +1,26 @@
 {
   "name": "@gosfc/vite",
-  "version": "0.0.0",
+  "version": "0.0.1-beta.0",
   "description": "Vite plugin that compiles <script setup lang=\"go\"> in Vue SFCs and Go in .astro files through goesm",
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/goesm-dev/gosfc.git",
+    "directory": "packages/vite"
+  },
+  "homepage": "https://github.com/goesm-dev/gosfc#readme",
+  "publishConfig": {
+    "access": "public",
+    "provenance": true
+  },
   "type": "module",
   "exports": {
     ".": "./src/index.js"
   },
-  "files": ["src", "runtime"],
+  "files": [
+    "src",
+    "runtime"
+  ],
   "dependencies": {
     "@vue/compiler-sfc": "^3.5.0",
     "magic-string": "^0.30.0"
