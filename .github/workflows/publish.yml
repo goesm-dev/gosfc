@@ -33,6 +33,8 @@ jobs:
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
       - name: Publish packages
-        run: pnpm --filter @gosfc/vite --filter @gosfc/astro publish --access public --no-git-checks
+        run: |
+          unset ACTIONS_ID_TOKEN_REQUEST_URL ACTIONS_ID_TOKEN_REQUEST_TOKEN
+          pnpm --filter @gosfc/vite --filter @gosfc/astro publish --access public --no-git-checks
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
