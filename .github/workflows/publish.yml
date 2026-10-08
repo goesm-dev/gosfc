@@ -17,8 +17,21 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - uses: jdx/mise-action@v5
+      - uses: actions/setup-node@v7
+        with:
+          registry-url: https://registry.npmjs.org
+          scope: "@gosfc"
       - run: pnpm install --frozen-lockfile
       - run: pnpm test
+      - name: Verify npm authentication
+        run: |
+          if [ -z "${NODE_AUTH_TOKEN}" ]; then
+            echo "NPM_TOKEN repository secret is missing or empty."
+            exit 1
+          fi
+          npm whoami
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
       - name: Publish packages
         run: pnpm --filter @gosfc/vite --filter @gosfc/astro publish --access public --no-git-checks
         env:
