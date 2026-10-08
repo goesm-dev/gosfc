@@ -20,6 +20,6 @@ jobs:
       - run: pnpm test
       - name: Publish @gosfc/vite
         working-directory: packages/vite
-        run: npm publish --access public
+        run: npm publish --access public --tag latest
       - name: Publish @gosfc/astro
-        run: pnpm --filter @gosfc/astro publish --access public --no-git-checks
+        run: pnpm --filter @gosfc/astro publish --access public --no-git-checks --tag latest
