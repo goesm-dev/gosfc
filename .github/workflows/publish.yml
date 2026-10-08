@@ -10,7 +10,6 @@ on:
 
 permissions:
   contents: read
-  id-token: write
 
 jobs:
   publish:
@@ -20,7 +19,7 @@ jobs:
       - uses: jdx/mise-action@v5
       - run: pnpm install --frozen-lockfile
       - run: pnpm test
-      - run: echo "//registry.npmjs.org/:_authToken=\${NPM_TOKEN}" > ~/.npmrc
-      - run: pnpm --filter @gosfc/vite --filter @gosfc/astro publish --access public --no-git-checks
+      - name: Publish packages
+        run: pnpm --filter @gosfc/vite --filter @gosfc/astro publish --access public --no-git-checks
         env:
-          NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
