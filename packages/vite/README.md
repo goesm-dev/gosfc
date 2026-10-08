@@ -1,8 +1,8 @@
 # @gosfc/vite
 
-Vite plugin for [gosfc](https://github.com/goesm-dev/gosfc): compiles `<script setup lang="go">` in Vue SFCs and Go in `.astro` files through [goesm](https://github.com/goesm-dev/goesm).
+Vite plugin for [gosfc](https://goesm.dev/gosfc): compiles `<script setup lang="go">` in Vue SFCs and Go in `.astro` files through [goesm](https://github.com/goesm-dev/goesm).
 
-**Status: PoC.** See the [repository README](https://github.com/goesm-dev/gosfc#readme) and [ARCHITECTURE.md](https://github.com/goesm-dev/gosfc/blob/main/ARCHITECTURE.md) for scope and limitations.
+**Status: PoC.** Full docs: [goesm.dev/gosfc](https://goesm.dev/gosfc). Source and architecture: [GitHub](https://github.com/goesm-dev/gosfc).
 
 ## Prerequisites
 
@@ -41,5 +41,5 @@ For Astro, use [`@gosfc/astro`](https://www.npmjs.com/package/@gosfc/astro) inst
 
 ## Documentation
 
-- [gosfc repository](https://github.com/goesm-dev/gosfc)
-- [Usage and Go block reference](https://github.com/goesm-dev/gosfc#usage-astro)
+- [gosfc docs](https://goesm.dev/gosfc)
+- [Source repository](https://github.com/goesm-dev/gosfc)
