@@ -10,8 +10,7 @@
   },
   "homepage": "https://github.com/goesm-dev/gosfc#readme",
   "publishConfig": {
-    "access": "public",
-    "provenance": true
+    "access": "public"
   },
   "type": "module",
   "exports": {
