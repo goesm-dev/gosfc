@@ -17,6 +17,7 @@
     ".": "./src/index.js"
   },
   "files": [
+    "README.md",
     "src"
   ],
   "dependencies": {
