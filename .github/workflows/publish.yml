@@ -1,0 +1,26 @@
+name: Publish to npm
+
+# Publishes @gosfc/vite and @gosfc/astro when a GitHub release is published
+# (or when run manually). Needs the NPM_TOKEN repository secret: an npm
+# automation / granular access token with publish rights to the @gosfc scope.
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: jdx/mise-action@v5
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm test
+      - run: echo "//registry.npmjs.org/:_authToken=\${NPM_TOKEN}" > ~/.npmrc
+      - run: pnpm --filter @gosfc/vite --filter @gosfc/astro publish --access public --no-git-checks
+        env:
+          NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
