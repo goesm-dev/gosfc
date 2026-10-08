@@ -8,7 +8,7 @@
     "url": "git+https://github.com/goesm-dev/gosfc.git",
     "directory": "packages/vite"
   },
-  "homepage": "https://github.com/goesm-dev/gosfc#readme",
+  "homepage": "https://goesm.dev/gosfc",
   "publishConfig": {
     "access": "public"
   },
@@ -17,6 +17,7 @@
     ".": "./src/index.js"
   },
   "files": [
+    "README.md",
     "src",
     "runtime"
   ],
