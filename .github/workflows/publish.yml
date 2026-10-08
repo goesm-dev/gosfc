@@ -1,7 +1,7 @@
 name: Publish to npm
 
 # Publishes @gosfc/vite and @gosfc/astro via npm Trusted Publishing (GitHub Actions OIDC).
-# On npmjs.com, each package needs a Trusted Publisher: goesm-dev/gosfc, workflow publish.yml.
+# Each package on npmjs.com needs a Trusted Publisher: goesm-dev / gosfc / publish.yml
 on:
   release:
     types: [published]
@@ -16,14 +16,10 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - uses: jdx/mise-action@v5
-      - uses: actions/setup-node@v7
-        with:
-          registry-url: https://registry.npmjs.org
-          scope: "@gosfc"
-          package-manager-cache: false
       - run: pnpm install --frozen-lockfile
       - run: pnpm test
-      - name: Publish packages
-        run: |
-          pnpm --filter @gosfc/vite publish --access public --no-git-checks
-          pnpm --filter @gosfc/astro publish --access public --no-git-checks
+      - name: Publish @gosfc/vite
+        working-directory: packages/vite
+        run: npm publish --access public
+      - name: Publish @gosfc/astro
+        run: pnpm --filter @gosfc/astro publish --access public --no-git-checks
