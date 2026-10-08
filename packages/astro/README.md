@@ -1,8 +1,8 @@
 # @gosfc/astro
 
-[Astro](https://astro.build/) integration for [gosfc](https://github.com/goesm-dev/gosfc): adds `@astrojs/vue` when needed and wires in [`@gosfc/vite`](https://www.npmjs.com/package/@gosfc/vite) for Go in Vue and `.astro` files.
+[Astro](https://astro.build/) integration for [gosfc](https://goesm.dev/gosfc): adds `@astrojs/vue` when needed and wires in [`@gosfc/vite`](https://www.npmjs.com/package/@gosfc/vite) for Go in Vue and `.astro` files.
 
-**Status: PoC.** See the [repository README](https://github.com/goesm-dev/gosfc#readme) and [ARCHITECTURE.md](https://github.com/goesm-dev/gosfc/blob/main/ARCHITECTURE.md) for scope and limitations.
+**Status: PoC.** Full docs: [goesm.dev/gosfc](https://goesm.dev/gosfc). Source and architecture: [GitHub](https://github.com/goesm-dev/gosfc).
 
 ## Prerequisites
 
@@ -42,5 +42,5 @@ For Vite + Vue without Astro, use [`@gosfc/vite`](https://www.npmjs.com/package/
 
 ## Documentation
 
-- [gosfc repository](https://github.com/goesm-dev/gosfc)
-- [Usage (Astro)](https://github.com/goesm-dev/gosfc#usage-astro)
+- [gosfc docs](https://goesm.dev/gosfc)
+- [Source repository](https://github.com/goesm-dev/gosfc)
