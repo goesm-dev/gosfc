@@ -16,10 +16,18 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - uses: jdx/mise-action@v5
+      - uses: actions/setup-node@v7
+        with:
+          registry-url: https://registry.npmjs.org
+          package-manager-cache: false
       - run: pnpm install --frozen-lockfile
       - run: pnpm test
       - name: Publish @gosfc/vite
         working-directory: packages/vite
         run: npm publish --access public --tag latest
       - name: Publish @gosfc/astro
-        run: pnpm --filter @gosfc/astro publish --access public --no-git-checks --tag latest
+        working-directory: packages/astro
+        run: |
+          VITE_VERSION=$(node -p "JSON.parse(require('node:fs').readFileSync('../vite/package.json','utf8')).version")
+          npm pkg set "dependencies.@gosfc/vite=${VITE_VERSION}"
+          npm publish --access public --tag latest
