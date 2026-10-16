@@ -169,8 +169,8 @@ export async function compileSfc(code, filename, opts) {
 export async function compileAstro(code, filename, opts) {
   const s = new MagicString(code);
   const fm = goFrontmatter(code, filename, opts.root);
-  /** @type {CompileResult} */
-  const out = { code, map: null, modules: [], runtime: [], goFiles: [] };
+  /** @type {CompileResult & { blocks: string[] }} */
+  const out = { code, map: null, modules: [], runtime: [], goFiles: [], blocks: [] };
   if (fm) {
     const { importPath, synth, res, goFiles } = await compileGoBlock({ ...frontmatterBlock(code, filename, fm, opts.root), lower: opts.lower });
     const jsImports = synth.jsImports ?? [];
@@ -213,6 +213,12 @@ export async function compileAstro(code, filename, opts) {
   }
 
   const scripts = goScripts(code, fm ? fm.end : frontmatterEnd(code));
+  // The file's blocks, so that the program leaves out the ones removed.
+  const mod = findGoModule(path.dirname(filename));
+  if (mod) {
+    if (fm) out.blocks.push(blockImportPath(mod, filename, frontmatterBlock(code, filename, fm, opts.root).pkgName));
+    scripts.forEach((sc, i) => out.blocks.push(blockImportPath(mod, filename, scriptBlock(code, filename, sc, i, opts.root).pkgName)));
+  }
   scripts.forEach((sc, i) => {
     if (sc.otherAttrs) {
       throw sfcError(filename, code, sc.start, `<script lang="go"> takes no other attributes (found ${sc.otherAttrs})`, opts.root);
@@ -373,6 +379,12 @@ function goScripts(code, from) {
  * }} BlockInput
  */
 
+/** The import path of the synthetic package of a block of filename. */
+function blockImportPath(mod, filename, pkgName) {
+  const relDir = path.relative(mod.dir, path.dirname(filename)).split(path.sep).join("/");
+  return [mod.modulePath, relDir, "_gosfc", pkgName].filter(Boolean).join("/");
+}
+
 /**
  * Makes a Go block a Go package (gosfc synth), for goesm to compile with the
  * rest of the program.
@@ -390,9 +402,8 @@ export async function synthBlock(b) {
   // The synthetic package lives in a directory that exists only in the
   // overlay, below the component, so the Go visibility rules (internal/)
   // apply as if the component were Go code in its own directory.
-  const relDir = path.relative(mod.dir, path.dirname(filename)).split(path.sep).join("/");
   const synthDir = path.join(path.dirname(filename), "_gosfc", pkgName);
-  const importPath = [mod.modulePath, relDir, "_gosfc", pkgName].filter(Boolean).join("/");
+  const importPath = blockImportPath(mod, filename, pkgName);
 
   const tagPos = lineCol(code, tagOffset);
   const start = lineCol(code, contentOffset);
@@ -473,14 +484,14 @@ export function goImports(code) {
 /**
  * The Go blocks of the .vue and .astro files under root that belong to the
  * Go module mod, made Go packages, and the packages JavaScript modules there
- * import with go:. A file that fails is skipped: it reports its error when
+ * import with go: (with the file importing each). A file that fails is skipped: it reports its error when
  * it is compiled. Directories Vite does not serve from are skipped: hidden
  * ones, node_modules, build output (outDirs, and caches marked with
  * CACHEDIR.TAG, such as Cargo's target).
  * @param {string} root
  * @param {import("./gomod.js").GoModule} mod
  * @param {string[]} outDirs
- * @returns {Promise<{ blocks: GoBlock[], imports: string[] }>}
+ * @returns {Promise<{ blocks: GoBlock[], imports: [string, string][] }>}
  */
 export async function scanGoModule(root, mod, outDirs) {
   const files = [];
@@ -504,7 +515,8 @@ export async function scanGoModule(root, mod, outDirs) {
   walk(root);
 
   const inputs = [];
-  const imports = new Set();
+  /** @type {[string, string][]} */
+  const imports = [];
   for (const file of files) {
     if (findGoModule(path.dirname(file))?.dir !== mod.dir) continue;
     let code;
@@ -528,7 +540,7 @@ export async function scanGoModule(root, mod, outDirs) {
     } catch {
       continue;
     }
-    for (const i of goImports(code)) imports.add(i);
+    for (const i of goImports(code)) imports.push([i, file]);
   }
 
   const blocks = [];
@@ -544,7 +556,7 @@ export async function scanGoModule(root, mod, outDirs) {
     }
   };
   await Promise.all(Array.from({ length: 8 }, worker));
-  return { blocks, imports: [...imports] };
+  return { blocks, imports };
 }
 
 /**

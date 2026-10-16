@@ -1,6 +1,6 @@
-// A component whose Go block is removed leaves the program: the next
-// compilation of another component no longer lowers the packages only the
-// removed block imported. Runs in its own process because
+// A component whose Go block is removed, or a JavaScript module's go:
+// import that is removed, leaves the program: the next compilation of
+// another component no longer lowers the packages only it imported. Runs in its own process because
 // @vitejs/plugin-vue keeps module-level descriptor caches.
 import assert from "node:assert/strict";
 import { mkdirSync, rmSync, writeFileSync } from "node:fs";
@@ -47,4 +47,20 @@ test("a removed Go block leaves the program", async (t) => {
   // B compiles again (its Go changed) without package only.
   writeFileSync(path.join(dir, "B.vue"), goComponent("", "3"));
   assert.match((await transform("B.vue")).code, /gosfc/);
+
+  // The same for a JavaScript module that stops importing package only.
+  writeFileSync(path.join(dir, "only", "only.go"), "package only\n\nfunc N() int { return 1 }\n");
+  writeFileSync(path.join(dir, "use.js"), 'import { N } from "go:example.com/fixture/src/forget/only";\nexport const n = N();\n');
+  await transform("use.js");
+  writeFileSync(path.join(dir, "use.js"), "export const n = 1;\n");
+  await transform("use.js");
+  writeFileSync(path.join(dir, "only", "only.go"), 'package only\n\nfunc N() int { return "x" }\n');
+  writeFileSync(path.join(dir, "B.vue"), goComponent("", "4"));
+  assert.match((await transform("B.vue")).code, /gosfc/);
+
+  // Two components that would be one Go package.
+  writeFileSync(path.join(dir, "Foo-Bar.vue"), goComponent("", "5"));
+  writeFileSync(path.join(dir, "foo_bar.vue"), goComponent("", "6"));
+  assert.ok(await transform("Foo-Bar.vue"));
+  await assert.rejects(transform("foo_bar.vue"), (e) => /foo_bar\.vue and Foo-Bar\.vue would both be Go package foo_bar_vue/.test(e.message));
 });

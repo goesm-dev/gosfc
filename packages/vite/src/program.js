@@ -47,14 +47,14 @@ import { goTool, readOnlyGoDirs } from "./gomod.js";
 export class GoProgram {
   /**
    * @param {import("./gomod.js").GoModule} mod
-   * @param {() => Promise<{ blocks: GoBlock[], imports: string[] }>} [scan] the blocks and imports to start with
+   * @param {() => Promise<{ blocks: GoBlock[], imports: [string, string][] }>} [scan] the blocks and the imports (import path, importing file) to start with
    */
   constructor(mod, scan) {
     this.mod = mod;
     /** @type {Map<string, GoBlock>} import path -> block */
     this.blocks = new Map();
-    /** @type {Set<string>} packages imported from JavaScript */
-    this.imports = new Set();
+    /** @type {Map<string, Set<string>>} package imported from JavaScript -> the files importing it */
+    this.importers = new Map();
     /** @type {Outcome | null} */
     this.outcome = null;
     /** @type {Map<string, string[]>} import path -> goFilesOf */
@@ -64,7 +64,7 @@ export class GoProgram {
       ? scan().then(
           ({ blocks, imports }) => {
             for (const b of blocks) if (!this.blocks.has(b.importPath)) this.blocks.set(b.importPath, b);
-            for (const i of imports) this.imports.add(i);
+            for (const [i, file] of imports) this.addImport(i, file);
           },
           () => {},
         )
@@ -84,6 +84,13 @@ export class GoProgram {
    */
   async lowerBlock(block) {
     await this.ready;
+    // Two files whose names differ only in what a package name cannot hold
+    // (Foo-Bar.vue, foo_bar.vue) would be one package.
+    const other = this.blocks.get(block.importPath);
+    if (other && path.resolve(other.filename) !== path.resolve(block.filename) && existsSync(other.filename)) {
+      const pkg = block.importPath.slice(block.importPath.lastIndexOf("/") + 1);
+      throw blockError(block, [{ message: `${path.basename(block.filename)} and ${path.basename(other.filename)} would both be Go package ${pkg}; rename one of them` }]);
+    }
     this.blocks.set(block.importPath, block);
     const o = await this.compile();
     const own = o.failed.get(block.importPath) ?? o.error;
@@ -100,7 +107,7 @@ export class GoProgram {
    */
   async lowerImport(importPath, importer) {
     await this.ready;
-    this.imports.add(importPath);
+    this.addImport(importPath, importer);
     const o = await this.compile();
     if (o.error) {
       const lines = o.error.map((d) => {
@@ -127,6 +134,35 @@ export class GoProgram {
         this.blocks.delete(importPath);
         any = true;
       }
+    }
+    return any;
+  }
+
+  /** The packages imported from JavaScript. */
+  get imports() {
+    return [...this.importers.keys()];
+  }
+
+  /** @param {string} importPath @param {string} file */
+  addImport(importPath, file) {
+    if (!this.importers.has(importPath)) this.importers.set(importPath, new Set());
+    this.importers.get(importPath).add(path.resolve(file));
+  }
+
+  /**
+   * Leaves out the go: imports of the JavaScript module file other than
+   * those in keep; a package no module imports any more leaves the program.
+   * Reports whether one did.
+   * @param {string} file
+   * @param {Set<string>} keep
+   */
+  forgetImports(file, keep) {
+    const abs = path.resolve(file);
+    let any = false;
+    for (const [importPath, files] of this.importers) {
+      if (keep.has(importPath) || !files.delete(abs) || files.size) continue;
+      this.importers.delete(importPath);
+      any = true;
     }
     return any;
   }
