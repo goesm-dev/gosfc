@@ -73,7 +73,8 @@ export function useGo(setup, _version, props, defaults) {
       return computed({
         get() {
           const v = read();
-          if (isRef(v)) return v.Get();
+          // A Go function held by a Ref changes Go state like any other.
+          if (isRef(v)) return fromGo(v.Get(), changed);
           return fromGo(v, changed);
         },
         set(x) {

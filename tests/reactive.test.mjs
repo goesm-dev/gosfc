@@ -60,5 +60,9 @@ test("vue package: Refs, Computeds, watchers, hooks, v-model, template refs, pro
   await page.click(".child button");
   await waitText(".picked", "vue:!!!");
 
+  // A Go function held by a Ref updates the bindings it changes.
+  await page.click("button.bump");
+  await waitText("button.bump", "1");
+
   assert.deepEqual(errors, []);
 });
