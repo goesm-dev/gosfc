@@ -126,6 +126,9 @@ type Output struct {
 	// PropDefaults are the `default:"..."` tags of the Props fields, keyed
 	// like the props object (the json tag name, or the field name).
 	PropDefaults map[string]string `json:"propDefaults,omitempty"`
+	// PropKeys are the keys of the props object (the json tag name, or the
+	// field name) of the exported fields of Props, in source order.
+	PropKeys []string `json:"propKeys,omitempty"`
 	// JSImports are the imports of JavaScript modules, in source order.
 	JSImports []JSImport `json:"jsImports"`
 }
@@ -345,7 +348,7 @@ func Build(in Input) Output {
 				// Props is the setup function's parameter type, so it is
 				// declared at package level.
 				out.Props = true
-				out.PropDefaults = propDefaults(it.toks[3:])
+				out.PropKeys, out.PropDefaults = propFields(it.toks[3:])
 				// The template reads the props as props.Field.
 				bind(tok{off: it.toks[1].off, lit: "props"}, "var")
 				importsDone = true
@@ -618,37 +621,45 @@ func blankLine(src string) bool {
 	return strings.Count(src[prev:], "\n") > 1
 }
 
-// propDefaults reads the `default:"..."` tags of the fields of a struct type,
-// given the tokens after `struct`. A field's key is its json tag name, or its
-// name, as the props object names it.
-func propDefaults(toks []tok) map[string]string {
-	var defaults map[string]string
+// propFields reads the fields of a struct type, given the tokens after
+// `struct`: the keys of its exported fields as encoding/json names them (the
+// json tag name, or the field name), and their `default:"..."` tags by key.
+func propFields(toks []tok) (keys []string, defaults map[string]string) {
 	depth := 0
 	var field []tok
 	flush := func() {
 		f := field
 		field = nil
-		if len(f) < 3 || f[len(f)-1].tok != token.STRING {
+		names := identList(f)
+		if len(names) == 0 || len(f) <= 2*len(names)-1 {
+			return // no field, or an embedded one
+		}
+		var tag reflect.StructTag
+		if f[len(f)-1].tok == token.STRING {
+			if raw, err := strconv.Unquote(f[len(f)-1].lit); err == nil {
+				tag = reflect.StructTag(raw)
+			}
+		}
+		j, _, _ := strings.Cut(tag.Get("json"), ",")
+		if j == "-" {
 			return
 		}
-		raw, err := strconv.Unquote(f[len(f)-1].lit)
-		if err != nil {
-			return
-		}
-		tag := reflect.StructTag(raw)
-		def, ok := tag.Lookup("default")
-		if !ok {
-			return
-		}
-		for _, n := range identList(f) {
+		def, hasDef := tag.Lookup("default")
+		for _, n := range names {
+			if !token.IsExported(n.lit) {
+				continue
+			}
 			key := n.lit
-			if j, _, _ := strings.Cut(tag.Get("json"), ","); j != "" && j != "-" {
+			if j != "" {
 				key = j
 			}
-			if defaults == nil {
-				defaults = map[string]string{}
+			keys = append(keys, key)
+			if hasDef {
+				if defaults == nil {
+					defaults = map[string]string{}
+				}
+				defaults[key] = def
 			}
-			defaults[key] = def
 		}
 	}
 	for _, t := range toks {
@@ -662,7 +673,7 @@ func propDefaults(toks []tok) map[string]string {
 			depth--
 			if depth == 0 {
 				flush()
-				return defaults
+				return keys, defaults
 			}
 		case token.SEMICOLON:
 			if depth == 1 {
@@ -674,5 +685,5 @@ func propDefaults(toks []tok) map[string]string {
 			field = append(field, t)
 		}
 	}
-	return defaults
+	return keys, defaults
 }

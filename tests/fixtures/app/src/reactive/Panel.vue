@@ -7,7 +7,7 @@
     <p class="greeting">{{ Greeting() }}</p>
     <canvas ref="canvas" width="10" height="10"></canvas>
     <p class="canvas">{{ canvasTag }}</p>
-    <Child :label="name" :count="ticks" @picked="Picked" />
+    <Child class="first" :label="name" :count="ticks" @picked="Picked" />
     <Child label="defaults" />
     <p class="picked">{{ picked }}</p>
     <p class="mounted">{{ mounted }}</p>

@@ -18,9 +18,9 @@
 // same way, since the Ref is read during the render.
 //
 // A block that declares `type Props struct {...}` receives the component's
-// attributes as a Props value, and receives them again whenever they change:
-// the bindings are then read again, and watchers and computeds made with the
-// vue package during setup re-run.
+// props (its fields, declared as Vue props) as a Props value, and receives
+// them again whenever they change: the bindings are then read again, and
+// watchers and computeds made with the vue package during setup re-run.
 
 import { computed, getCurrentInstance, shallowRef, triggerRef, useAttrs, watch } from "vue";
 import { fromGo, readProps } from "gosfc:convert.js";
@@ -31,8 +31,9 @@ import { fromGo, readProps } from "gosfc:convert.js";
  *   the generated script changes when the Go code does (HMR)
  * @param {() => Record<string, unknown>} [props] zero value of the block's Props
  * @param {Record<string, string>} [defaults] the `default` tags of the Props fields
+ * @param {Record<string, unknown>} [declared] the Vue props the Props fields are declared as
  */
-export function useGo(setup, _version, props, defaults) {
+export function useGo(setup, _version, props, defaults, declared) {
   const version = shallowRef(0);
   // A Go function called while Vue renders (a call in the template) must
   // not invalidate what the render reads, or the render would run again
@@ -48,14 +49,20 @@ export function useGo(setup, _version, props, defaults) {
     const propsVersion = shallowRef(0);
     const inst = getCurrentInstance();
     if (inst) inst.gosfcProps = propsVersion;
-    lookup = setup(readProps(zero, attrs, defaults));
+    // The fields arrive as the declared props; a field also takes an
+    // attribute spelled as its Go name (Size="3").
+    const source = () => (declared ? { ...attrs, ...declared } : attrs);
+    lookup = setup(readProps(zero, source(), defaults));
     const setProps = lookup("gosfc:props");
     // attrs is reactive but not deeply: read every key so that a prop added,
     // removed or replaced is noticed.
     watch(
-      () => Object.keys(attrs).map((k) => attrs[k]),
       () => {
-        setProps(readProps(zero, attrs, defaults));
+        const s = source();
+        return Object.keys(s).map((k) => s[k]);
+      },
+      () => {
+        setProps(readProps(zero, source(), defaults));
         triggerRef(propsVersion);
         changed();
       },

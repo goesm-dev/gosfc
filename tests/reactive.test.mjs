@@ -43,6 +43,9 @@ test("vue package: Refs, Computeds, watchers, hooks, v-model, template refs, pro
   assert.equal(await text(".child .shared"), "3");
   assert.equal(await page.locator(".child .shared").nth(1).textContent(), "3");
 
+  // Attributes that are not Props fields fall through to the root element.
+  assert.equal(await page.locator(".child.first").count(), 1);
+
   // Props follow the parent; the child's watcher on a prop runs.
   assert.equal(await text(".child .label"), "gopher");
   assert.equal(await text(".child .seen"), "3");

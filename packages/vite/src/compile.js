@@ -121,9 +121,10 @@ export async function compileSfc(code, filename, opts) {
         "",
         `import { GosfcSetup as __gosfc_setup, GosfcProps as __gosfc_props } from ${JSON.stringify("go:" + importPath)};`,
         `import { useGo as __gosfc_useGo } from ${JSON.stringify(RUNTIME_ID)};`,
-        // Props arrive as attributes; they must not also land on the root element.
-        "defineOptions({ inheritAttrs: false });",
-        `const __gosfc = __gosfc_useGo(__gosfc_setup, ${version}, __gosfc_props${defaultsArg(synth)});`,
+        // The Props fields are declared as Vue props, so that the other
+        // attributes (class, style, listeners) fall through to the root element.
+        `const __gosfc_in = defineProps(${JSON.stringify(propNames(synth))});`,
+        `const __gosfc = __gosfc_useGo(__gosfc_setup, ${version}, __gosfc_props${defaultsArg(synth) || ", undefined"}, __gosfc_in);`,
       ]
     : [
         "",
@@ -557,6 +558,15 @@ function packageName(filename) {
 // fields to the runtime, or nothing when there are none.
 function defaultsArg(synth) {
   return synth.propDefaults && Object.keys(synth.propDefaults).length ? `, ${JSON.stringify(synth.propDefaults)}` : "";
+}
+
+// propNames are the names Vue declares the Props fields as props by: the key
+// of the props object (json tag name or field name) with its leading capitals
+// lowered, as readProps (runtime/convert.js) reads them. Vue matches the
+// kebab-case attributes to them too.
+function propNames(synth) {
+  const names = (synth.propKeys ?? []).map((k) => k.replace(/^[A-Z]+(?=[A-Z][a-z]|$)|^[A-Z]/, (s) => s.toLowerCase()));
+  return [...new Set(names)].filter((n) => n !== "key" && n !== "ref");
 }
 
 // Identifiers that are valid in Go but cannot name a JavaScript binding.
