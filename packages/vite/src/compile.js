@@ -137,7 +137,7 @@ export async function compileSfc(code, filename, opts) {
         `import { useGo as __gosfc_useGo } from ${JSON.stringify(RUNTIME_ID)};`,
         // Props arrive as attributes; they must not also land on the root element.
         "defineOptions({ inheritAttrs: false });",
-        `const __gosfc = __gosfc_useGo(__gosfc_setup, ${version}, __gosfc_props);`,
+        `const __gosfc = __gosfc_useGo(__gosfc_setup, ${version}, __gosfc_props${defaultsArg(synth)});`,
       ]
     : [
         "",
@@ -215,7 +215,7 @@ export async function compileAstro(code, filename, opts) {
         ? `import { GosfcSetup as __gosfc_setup, GosfcProps as __gosfc_props } from ${JSON.stringify(id)};`
         : `import { GosfcSetup as __gosfc_setup } from ${JSON.stringify(id)};`,
       `import { runGo as __gosfc_run } from ${JSON.stringify(ASTRO_RUNTIME_ID)};`,
-      `const __gosfc = await __gosfc_run(__gosfc_setup, ${synth.props ? "__gosfc_props" : "null"}, Astro.props);`,
+      `const __gosfc = await __gosfc_run(__gosfc_setup, ${synth.props ? "__gosfc_props" : "null"}, Astro.props${defaultsArg(synth)});`,
       ...bindings.map((bd) => `const ${bd.name} = __gosfc(${JSON.stringify(bd.name)});`),
     );
     s.overwrite(fm.fence, fm.fence + "---go".length, "---");
@@ -344,7 +344,7 @@ function goScripts(code, from) {
 }
 
 /**
- * @typedef {{ go: string, bindings: {name: string, kind: string, line: number, column: number}[], diagnostics: {line: number, column: number, message: string}[], props: boolean, jsImports: {name: string, path: string}[] }} SynthOutput
+ * @typedef {{ go: string, bindings: {name: string, kind: string, line: number, column: number}[], diagnostics: {line: number, column: number, message: string}[], props: boolean, propDefaults?: Record<string, string>, jsImports: {name: string, path: string}[] }} SynthOutput
  */
 
 /**
@@ -522,6 +522,12 @@ function sfcError(file, code, offset, message, root) {
 function displayPath(file, root) {
   const rel = path.relative(root, file);
   return rel.startsWith("..") ? file : rel.split(path.sep).join("/");
+}
+
+// defaultsArg is the argument passing the `default:"..."` tags of the Props
+// fields to the runtime, or nothing when there are none.
+function defaultsArg(synth) {
+  return synth.propDefaults && Object.keys(synth.propDefaults).length ? `, ${JSON.stringify(synth.propDefaults)}` : "";
 }
 
 // Identifiers that are valid in Go but cannot name a JavaScript binding.

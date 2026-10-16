@@ -103,7 +103,7 @@ export default { plugins: [gosfc(), vue()] };
   </script>
   ```
 * メソッドとジェネリック関数は Go パッケージに置いてください。
-* props を受け取るには `type Props struct {...}` を宣言します。ブロックの中でその型の `props` 変数が使えます。フィールド `Route` は属性 `route`（json タグがあればその名前、または kebab-case の形）から読み、フィールドの型（string、bool、整数、浮動小数点数）に変換します。props はインスタンスの setup 時に 1 回だけ読み、ルート要素にはフォールスルーしません。
+* props を受け取るには `type Props struct {...}` を宣言します。ブロックの中でその型の `props` 変数が使えます。フィールド `Route` は属性 `route`（json タグがあればその名前、または kebab-case の形）から読み、フィールドの型に変換します。文字列、bool、数値のほか、struct、スライス、ポインタ（`null` は nil）、関数も goesm の ABI のとおりに変換します。フィールドの `default:"..."` タグは、親が渡さなかった props の値になります。親が新しい props を渡すと `props` が置き換わり、テンプレート（`{{ props.Title }}`）も読み直します。props はルート要素にはフォールスルーしません。
 
   ```vue
   <script setup lang="go">
@@ -116,6 +116,50 @@ export default { plugins: [gosfc(), vue()] };
   heading := strings.ToUpper(props.Title)
   </script>
   ```
+
+## リアクティビティ: vue パッケージ
+
+Vue は Go の変数を見られません。テンプレートが値を読み直すのは、テンプレート自身が Go を呼んだ後（イベントハンドラ）だけです。ひとりでに変わる状態（タイマー、ゴルーチン、別のコンポーネント）は、パッケージ `github.com/goesm-dev/gosfc/vue` の `vue.Ref` に入れます。
+
+```vue
+<template>
+  <p>{{ seconds }} 秒（{{ Label() }}）</p>
+  <input v-model="name" />
+  <canvas ref="canvas"></canvas>
+</template>
+
+<script setup lang="go">
+import (
+	"syscall/js"
+	"time"
+
+	"github.com/goesm-dev/gosfc/vue"
+)
+
+seconds := vue.NewRef(0)
+name := vue.NewRef("")
+canvas := vue.NewRef(js.Null())
+emit := vue.Emitter()
+
+func Label() string { return "こんにちは " + name.Get() }
+
+vue.OnMounted(func() {
+	go func() {
+		for range time.Tick(time.Second) {
+			seconds.Set(seconds.Get() + 1)
+		}
+	}()
+})
+vue.Watch(func() int { return seconds.Get() }, func(n int) { emit("tick", n) })
+</script>
+```
+
+* テンプレートにバインドした Ref は値として読め、どこで `Set` されても（別のパッケージからでも）追従します。Ref を Go パッケージに置いて、複数のコンポーネントで共有できます。`v-model` と `ref="..."` は `Set` で書き込みます。
+* テンプレートから呼んだ Go 関数は、その中で読んだ Ref が変わると再実行されます。
+* `vue.NewComputed` はキャッシュされる派生値を作ります。`vue.Watch` と `vue.WatchEffect` は副作用を実行し、コンポーネントの props が変わったときにも再実行されます。
+* `vue.OnMounted`、`OnBeforeUnmount`、`OnUnmounted` と `vue.Emitter` は setup 中のコンポーネントに結び付くので、ブロックのトップレベルで呼びます。`ModelValue` の props と `emit("update:modelValue", v)` で、コンポーネントが `v-model` に対応します。
+* goesm のビルド以外（`go test`）では、Ref と Computed は値を保持・計算し、ウォッチャーとフックは実行されません。
+* Ref のバインディングを読むには、v0.0.1-beta.4 より新しい goesm が必要です（`any` に入ったハンドルがメソッドを持つため）。
 
 ## .astro ファイルで Go を使う
 

@@ -127,6 +127,10 @@ Only one change was made on the goesm side for this PoC: adding `-overlay` to `b
 
 * What Go code changes are ordinary Go variables, which Vue cannot observe. So every time a Go function is called through a binding (an event handler, a call in the template), the instance's version is advanced and every binding re-reads its value from Go. Only Vue's own reactivity and scheduler are used; there is no separate renderer or scheduler.
 * Values are converted for the template by goesm's JS calling ABI (Go string → JS string, slice → array, struct → object, function → function). This is a snapshot: modifying it on the JS side does not change Go state.
+* A binding holding a `vue.Ref` or `vue.Computed` (package `vue`, a goesm handle with the marker method `GosfcRef`) reads as `Get()`. The Ref's `Get` reads a Vue `shallowRef` and its `Set` triggers it, so Vue tracks the Ref in the binding's computed, in the render (for Go functions called from the template) and in watchers, whoever calls `Set`. The binding's computed is writable: `v-model` and `ref="..."` call `Set`, unless the value is the one the Ref already holds.
+* A Go function called while Vue renders does not advance the version: it would invalidate what the render is reading and make it run again forever.
+* With `type Props`, the bridge watches the attributes and passes new props through the lookup's `gosfc:props` setter, then advances the version and a props version that the `vue` package's watchers and computeds made during setup also read.
+* `vue.Emitter` captures the instance's `emit` during setup.
 * A Go function receives only as many arguments as it declares. The DOM event passed by `@click="Increment"` is not passed to `func Increment()`. Its arguments are converted by the ABI, structs and slices included, and a final `error` result is thrown. For a blocking Go function (one that returns a Promise), the update happens after it resolves.
 
 ## 7. Source maps and diagnostics
@@ -187,11 +191,11 @@ An `.astro` file whose frontmatter opens with `---go`, or that contains `<script
 
 Not yet implemented:
 
-* A way to handle emits / slots from Go. Props can be received with `type Props` from §4, but they are a snapshot taken at setup time and do not follow changes.
+* A way to handle slots from Go.
 * `gosfc fmt` (§12), a language server, a VS Code extension.
 * Declaring methods and generic functions inside the Go block (they must go in a Go package).
-* Reflecting in the template changes to Go state that happen other than through calls via bindings, such as from goroutines or timers.
-* Modifying Go values from the template (`v-model` and so on).
+* Reflecting in the template changes to plain Go variables (not `vue.Ref`s) that happen other than through calls via bindings, such as from goroutines or timers.
+* `v-model` on a plain Go variable (it works on a `vue.Ref`).
 
 Open questions:
 
