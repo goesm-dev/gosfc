@@ -1,11 +1,11 @@
 // The boundary between gosfc and goesm.
 //
 // This is the only file that knows how goesm is invoked and how its output is
-// laid out. gosfc hands goesm one generated Go file through the go command's
+// laid out. gosfc hands goesm generated Go files through the go command's
 // standard overlay mechanism and gets TypeScript modules with source maps, or
 // diagnostics, back:
 //
-//   goesm emit-ts -overlay <overlay.json> -o <dir> <package pattern>
+//   goesm emit-ts -overlay <overlay.json> -o <dir> <package pattern>...
 //     -> <dir>/<import path>.ts (+ .ts.map)     one module per Go package
 //     -> <dir>/@goesm/runtime/*.ts               the goesm runtime
 //     modules import each other and the runtime with relative "./x.ts" specifiers
@@ -29,12 +29,13 @@ import { run } from "./gomod.js";
  */
 
 /**
- * Lowers the Go package `pattern` (and its dependencies) to TypeScript.
+ * Lowers the Go packages `patterns` (and their dependencies) to TypeScript,
+ * as one program whose entries they are.
  * @param {object} opts
  * @param {string} opts.goesm path of the goesm binary
  * @param {string} opts.moduleDir directory of the main module's go.mod
  * @param {Record<string, string>} opts.overlay absolute path -> file contents
- * @param {string} opts.pattern Go package pattern, relative to moduleDir
+ * @param {string[]} opts.patterns Go package patterns, relative to moduleDir
  * @returns {Promise<GoesmResult>}
  */
 export async function emitTS(opts) {
@@ -50,7 +51,7 @@ export async function emitTS(opts) {
     const overlayFile = path.join(tmp, "overlay.json");
     await writeFile(overlayFile, JSON.stringify({ Replace: replace }));
     const outDir = path.join(tmp, "out");
-    const r = await run(opts.goesm, ["emit-ts", "-overlay", overlayFile, "-o", outDir, opts.pattern], {
+    const r = await run(opts.goesm, ["emit-ts", "-overlay", overlayFile, "-o", outDir, ...opts.patterns], {
       cwd: opts.moduleDir,
     });
     if (r.code !== 0) {

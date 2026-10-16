@@ -154,12 +154,12 @@ vue.Watch(func() int { return seconds.Get() }, func(n int) { emit("tick", n) })
 </script>
 ```
 
-* テンプレートにバインドした Ref は値として読め、どこで `Set` されても（別のパッケージからでも）追従します。Ref を Go パッケージに置いて、複数のコンポーネントで共有できます。`v-model` と `ref="..."` は `Set` で書き込みます。
+* テンプレートにバインドした Ref は値として読め、どこで `Set` されても（別のパッケージからでも）追従します。Ref を Go パッケージに置いて、複数のコンポーネントで共有できます。すべてのコンポーネントの Go（と JavaScript が `go:` でインポートするパッケージ）は、Go のバイナリのパッケージと同じく 1 つの goesm プログラムなので、パッケージの変数はアプリ全体で 1 組です。`v-model` と `ref="..."` は `Set` で書き込みます。
 * テンプレートから呼んだ Go 関数は、その中で読んだ Ref が変わると再実行されます。
 * `vue.NewComputed` はキャッシュされる派生値を作ります。`vue.Watch` と `vue.WatchEffect` は副作用を実行し、コンポーネントの props が変わったときにも再実行されます。
 * `vue.OnMounted`、`OnBeforeUnmount`、`OnUnmounted` と `vue.Emitter` は setup 中のコンポーネントに結び付くので、ブロックのトップレベルで呼びます。`ModelValue` の props と `emit("update:modelValue", v)` で、コンポーネントが `v-model` に対応します。
 * goesm のビルド以外（`go test`）では、Ref と Computed は値を保持・計算し、ウォッチャーとフックは実行されません。
-* Ref のバインディングを読むには、v0.0.1-beta.4 より新しい goesm が必要です（`any` に入ったハンドルがメソッドを持つため）。
+* gosfc には goesm v0.0.1-beta.5 以降が必要です。`any` に入ったハンドルがメソッドを持ち、複数のパッケージを 1 つのプログラムとしてビルドできる版です。
 
 ## .astro ファイルで Go を使う
 

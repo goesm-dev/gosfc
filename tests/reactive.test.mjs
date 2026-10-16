@@ -1,7 +1,7 @@
 // Reactivity of <script setup lang="go"> through the vue package
 // (github.com/goesm-dev/gosfc/vue) in a browser: Refs set by goroutines,
 // Computeds, watchers, lifecycle hooks, v-model, template refs, props that
-// change, prop defaults and emits.
+// change, prop defaults and emits, and state shared by components.
 import assert from "node:assert/strict";
 import { existsSync } from "node:fs";
 import { test } from "node:test";
@@ -38,6 +38,10 @@ test("vue package: Refs, Computeds, watchers, hooks, v-model, template refs, pro
   assert.equal(await text(".watched"), "3");
   assert.equal(await text(".mounted"), "true");
   assert.equal(await text(".canvas"), "CANVAS");
+
+  // Both components import package clock: one Ref, one value.
+  assert.equal(await text(".child .shared"), "3");
+  assert.equal(await page.locator(".child .shared").nth(1).textContent(), "3");
 
   // Props follow the parent; the child's watcher on a prop runs.
   assert.equal(await text(".child .label"), "gopher");

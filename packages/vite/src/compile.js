@@ -21,13 +21,16 @@
 //                           a module that runs the lowered block in the browser
 //                           (compileAstroScript)
 
-import { generateCodeFrame, parse } from "@vue/compiler-sfc";
+import { parse } from "@vue/compiler-sfc";
 import { createHash } from "node:crypto";
-import { readFileSync } from "node:fs";
+import { readdirSync, readFileSync } from "node:fs";
 import MagicString from "magic-string";
 import path from "node:path";
-import { emitTS } from "./goesm.js";
-import { findGoModule, goTool, readOnlyGoDirs, run } from "./gomod.js";
+import { GosfcError, lineCol, sfcError, withFrame } from "./errors.js";
+import { findGoModule, goTool, run } from "./gomod.js";
+import { GoProgram } from "./program.js";
+
+export { GosfcError } from "./errors.js";
 
 // The bridge module the generated script imports (runtime/bridge.js). It is a
 // virtual id rather than a package specifier so that Vite's SSR never
@@ -57,7 +60,9 @@ export function mayHaveGoAstro(code) {
 /**
  * @typedef {import("./goesm.js").GoModuleOutput} GoModuleOutput
  * @typedef {import("./goesm.js").RuntimeFile} RuntimeFile
- * @typedef {{ message: string, file: string, line: number, column: number, frame?: string }} SfcError
+ * @typedef {import("./program.js").GoBlock} GoBlock
+ * @typedef {import("./program.js").Lowered} Lowered
+ * @typedef {(block: GoBlock) => Promise<Lowered>} Lower lowers a block with the rest of its program
  * @typedef {{
  *   code: string,
  *   map: any,
@@ -67,25 +72,12 @@ export function mayHaveGoAstro(code) {
  * }} CompileResult
  */
 
-export class GosfcError extends Error {
-  /** @param {SfcError[]} errors @param {string} root */
-  constructor(errors, root) {
-    super(errors.map((e) => `${displayPath(e.file, root)}:${e.line}:${e.column}: ${e.message}`).join("\n"));
-    this.name = "GosfcError";
-    this.errors = errors;
-    const first = errors[0];
-    // Shape understood by Vite's error overlay and by Astro.
-    this.id = first.file;
-    this.loc = { file: first.file, line: first.line, column: first.column };
-    this.frame = first.frame;
-  }
-}
-
 /**
  * Compiles one .vue file. Returns null when it has no <script setup lang="go">.
  * @param {string} code
  * @param {string} filename absolute path of the .vue file
- * @param {{ root: string }} opts
+ * @param {{ root: string, lower?: Lower }} opts lower: how the block is lowered with the
+ *   rest of the app (by default, as a program of its own)
  * @returns {Promise<CompileResult | null>}
  */
 export async function compileSfc(code, filename, opts) {
@@ -103,15 +95,7 @@ export async function compileSfc(code, filename, opts) {
   }
 
   const tagOffset = code.lastIndexOf("<script", block.loc.start.offset);
-  const { importPath, synth, res, goFiles } = await compileGoBlock({
-    code,
-    filename,
-    contentOffset: block.loc.start.offset,
-    content: block.content,
-    tagOffset,
-    pkgName: packageName(filename),
-    root: opts.root,
-  });
+  const { importPath, synth, res, goFiles } = await compileGoBlock({ ...vueBlock(code, filename, block, opts.root), lower: opts.lower });
 
   const s = new MagicString(code);
   // <script setup lang="go"> -> <script setup lang="ts">. Vue requires <script>
@@ -127,8 +111,10 @@ export async function compileSfc(code, filename, opts) {
   // does, even if the bindings stay the same; that is what tells
   // @vitejs/plugin-vue's HMR to reload the component rather than re-render
   // it. (plugin-vue compares script ASTs, so it has to be code, not a comment.)
+  // A change to another package reaches the component through Vite's HMR
+  // of that package's module.
   const hash = createHash("sha256");
-  for (const m of res.modules) hash.update(m.importPath).update("\0").update(m.code);
+  for (const m of res.modules) if (m.importPath === importPath) hash.update(m.code);
   const version = JSON.stringify(hash.digest("hex").slice(0, 16));
   const glue = synth.props
     ? [
@@ -161,9 +147,9 @@ export async function compileSfc(code, filename, opts) {
 }
 
 /**
- * Adds a lowered program (to the plugin's virtual modules) and returns the id
- * to import the package of the block by.
- * @typedef {(res: { modules: GoModuleOutput[], runtime: RuntimeFile[] }, importPath: string) => string} Register
+ * Returns the id to import the package of a block by (the plugin's virtual
+ * module of the package).
+ * @typedef {(importPath: string) => string} Register
  */
 
 /**
@@ -176,7 +162,7 @@ export async function compileSfc(code, filename, opts) {
  * has no Go.
  * @param {string} code
  * @param {string} filename absolute path of the .astro file
- * @param {{ root: string, register?: Register }} opts
+ * @param {{ root: string, register?: Register, lower?: Lower }} opts
  * @returns {Promise<CompileResult | null>}
  */
 export async function compileAstro(code, filename, opts) {
@@ -185,17 +171,7 @@ export async function compileAstro(code, filename, opts) {
   /** @type {CompileResult} */
   const out = { code, map: null, modules: [], runtime: [], goFiles: [] };
   if (fm) {
-    const { importPath, synth, res, goFiles } = await compileGoBlock({
-      code,
-      filename,
-      content: fm.content,
-      contentOffset: fm.contentOffset,
-      tagOffset: fm.fence,
-      pkgName: packageName(filename),
-      root: opts.root,
-      block: "the Go frontmatter",
-      jsImports: true,
-    });
+    const { importPath, synth, res, goFiles } = await compileGoBlock({ ...frontmatterBlock(code, filename, fm, opts.root), lower: opts.lower });
     const jsImports = synth.jsImports ?? [];
     const bindings = synth.bindings ?? [];
     // A binding becomes a const next to the imports and Astro's own globals.
@@ -208,7 +184,7 @@ export async function compileAstro(code, filename, opts) {
       });
     if (errs.length) throw new GosfcError(errs, opts.root);
 
-    const id = opts.register ? opts.register(res, importPath) : "go:" + importPath;
+    const id = opts.register ? opts.register(importPath) : "go:" + importPath;
     const stmts = jsImports.map((i) => (i.name === "_" ? `import ${JSON.stringify(i.path)};` : `import ${i.name} from ${JSON.stringify(i.path)};`));
     stmts.push(
       synth.props
@@ -255,7 +231,7 @@ export async function compileAstro(code, filename, opts) {
  * that runs the block (bindings are not used).
  * @param {string} filename
  * @param {number} index
- * @param {{ root: string, register?: Register, code?: string }} opts
+ * @param {{ root: string, register?: Register, lower?: Lower, code?: string }} opts
  * @returns {Promise<{ code: string, modules: GoModuleOutput[], runtime: RuntimeFile[], goFiles: string[] }>}
  */
 export async function compileAstroScript(filename, index, opts) {
@@ -263,23 +239,56 @@ export async function compileAstroScript(filename, index, opts) {
   const fm = goFrontmatter(code, filename, opts.root);
   const sc = goScripts(code, fm ? fm.end : frontmatterEnd(code))[index];
   if (!sc) throw new Error(`gosfc: ${filename} has no <script lang="go"> number ${index + 1}`);
-  const { importPath, res, goFiles } = await compileGoBlock({
+  const { importPath, res, goFiles } = await compileGoBlock({ ...scriptBlock(code, filename, sc, index, opts.root), lower: opts.lower });
+  const id = opts.register ? opts.register(importPath) : "go:" + importPath;
+  return {
+    code: `import { GosfcSetup } from ${JSON.stringify(id)};\nGosfcSetup();\n`,
+    modules: res.modules,
+    runtime: res.runtime,
+    goFiles,
+  };
+}
+
+/** The Go block of a .vue file, for compileGoBlock. */
+function vueBlock(code, filename, block, root) {
+  return {
+    code,
+    filename,
+    contentOffset: block.loc.start.offset,
+    content: block.content,
+    tagOffset: code.lastIndexOf("<script", block.loc.start.offset),
+    pkgName: packageName(filename),
+    root,
+  };
+}
+
+/** The Go frontmatter of an .astro file, for compileGoBlock. */
+function frontmatterBlock(code, filename, fm, root) {
+  return {
+    code,
+    filename,
+    content: fm.content,
+    contentOffset: fm.contentOffset,
+    tagOffset: fm.fence,
+    pkgName: packageName(filename),
+    root,
+    block: "the Go frontmatter",
+    jsImports: true,
+  };
+}
+
+/** The index-th <script lang="go"> of an .astro file, for compileGoBlock. */
+function scriptBlock(code, filename, sc, index, root) {
+  return {
     code,
     filename,
     content: code.slice(sc.contentStart, sc.contentEnd),
     contentOffset: sc.contentStart,
     tagOffset: sc.start,
     pkgName: `${packageName(filename)}_script${index}`,
-    root: opts.root,
+    root,
     block: '<script lang="go">',
     bindings: false,
-  });
-  const id = opts.register ? opts.register(res, importPath) : "go:" + importPath;
-  return {
-    code: `import { GosfcSetup } from ${JSON.stringify(id)};\nGosfcSetup();\n`,
-    modules: res.modules,
-    runtime: res.runtime,
-    goFiles,
   };
 }
 
@@ -348,9 +357,8 @@ function goScripts(code, from) {
  */
 
 /**
- * Lowers one Go block of a .vue or .astro file: gosfc synth makes it a Go
- * package, which goesm compiles with the rest of the program.
- * @param {{
+ * A Go block of a .vue or .astro file.
+ * @typedef {{
  *   code: string,           // the whole file
  *   filename: string,       // its absolute path
  *   content: string,        // the Go block
@@ -361,10 +369,16 @@ function goScripts(code, from) {
  *   block?: string,         // how the block is written, for messages
  *   jsImports?: boolean,    // imports of JavaScript modules are allowed
  *   bindings?: boolean,     // false: the bindings are not used (a client script)
- * }} b
- * @returns {Promise<{ importPath: string, synth: SynthOutput, res: { modules: GoModuleOutput[], runtime: RuntimeFile[] }, goFiles: string[] }>}
+ * }} BlockInput
  */
-async function compileGoBlock(b) {
+
+/**
+ * Makes a Go block a Go package (gosfc synth), for goesm to compile with the
+ * rest of the program.
+ * @param {BlockInput} b
+ * @returns {Promise<GoBlock & { synth: SynthOutput, mod: import("./gomod.js").GoModule }>}
+ */
+export async function synthBlock(b) {
   const { code, filename, content, contentOffset, tagOffset, pkgName } = b;
   const blockName = b.block ?? '<script setup lang="go">';
   const mod = findGoModule(path.dirname(filename));
@@ -381,7 +395,7 @@ async function compileGoBlock(b) {
 
   const tagPos = lineCol(code, tagOffset);
   const start = lineCol(code, contentOffset);
-  const [gosfcBin, goesmBin] = await Promise.all([goTool(mod.dir, "gosfc"), goTool(mod.dir, "goesm")]);
+  const gosfcBin = await goTool(mod.dir, "gosfc");
 
   const synthRes = await run(gosfcBin, ["synth"], {
     cwd: mod.dir,
@@ -401,7 +415,7 @@ async function compileGoBlock(b) {
   /** @type {SynthOutput} */
   const synth = JSON.parse(synthRes.stdout);
 
-  /** @type {SfcError[]} */
+  /** @type {import("./errors.js").SfcError[]} */
   const errs = (synth.diagnostics ?? []).map((d) => withFrame({ file: filename, line: d.line, column: d.column, message: d.message }, code));
   for (const bd of b.bindings === false ? [] : synth.bindings ?? []) {
     if (JS_RESERVED.has(bd.name)) {
@@ -410,67 +424,109 @@ async function compileGoBlock(b) {
   }
   if (errs.length) throw new GosfcError(errs, b.root);
 
-  const res = await emitTS({
-    goesm: goesmBin,
-    moduleDir: mod.dir,
-    overlay: { [path.join(synthDir, "setup.go")]: synth.go },
+  const relLines = [start.line, start.line + content.split("\n").length - 1];
+  return {
+    importPath,
     pattern: "./" + path.relative(mod.dir, synthDir).split(path.sep).join("/"),
-  });
-  if (!res.ok) {
-    throw new GosfcError(
-      res.diagnostics.map((d) => {
-        const file = d.file && !d.file.startsWith(synthDir) ? d.file : filename;
-        const pos = d.file && d.line ? { line: d.line, column: d.column ?? 1 } : tagPos;
-        const message = d.layer ? `${d.message} [${d.layer}]` : d.message;
-        return file === filename ? withFrame({ file, ...pos, message }, code) : { file, ...pos, message };
-      }),
-      b.root,
-    );
-  }
-
-  return { importPath, synth, res, goFiles: await watchedGoFiles(res.modules, mod.dir) };
+    synthDir,
+    go: synth.go,
+    filename,
+    code,
+    lines: relLines,
+    tagPos,
+    root: b.root,
+    synth,
+    mod,
+  };
 }
 
 /**
- * Compiles a Go package imported from JavaScript or TypeScript (`import { F }
- * from "go:<import path>"` in a .js, .ts or .astro module) rather than from a
- * Go block. The package is resolved in the Go module of the importing file,
- * exactly as an import in a .go file of that module would be.
- * @param {string} importPath
- * @param {string} importer absolute path of the importing file
- * @returns {Promise<{ modules: GoModuleOutput[], runtime: RuntimeFile[], goFiles: string[] }>}
+ * Lowers one Go block of a .vue or .astro file with the rest of its program
+ * (b.lower), or as a program of its own.
+ * @param {BlockInput & { lower?: Lower }} b
+ * @returns {Promise<{ importPath: string, synth: SynthOutput, res: Lowered, goFiles: string[] }>}
  */
-export async function compilePackage(importPath, importer) {
-  const mod = findGoModule(path.dirname(importer));
-  if (!mod) throw new Error(`gosfc: no go.mod found for ${importer}, which imports go:${importPath}`);
-  const goesmBin = await goTool(mod.dir, "goesm");
-  const res = await emitTS({ goesm: goesmBin, moduleDir: mod.dir, overlay: {}, pattern: importPath });
-  if (!res.ok) {
-    const lines = res.diagnostics.map((d) => {
-      const at = d.file ? `${d.file}${d.line ? `:${d.line}:${d.column ?? 1}` : ""}: ` : "";
-      return at + d.message + (d.layer ? ` [${d.layer}]` : "");
-    });
-    throw new Error(`gosfc: compiling go:${importPath} (imported by ${importer}) failed:\n${lines.join("\n")}`);
-  }
-  return { modules: res.modules, runtime: res.runtime, goFiles: await watchedGoFiles(res.modules, mod.dir) };
+async function compileGoBlock(b) {
+  const block = await synthBlock(b);
+  const res = await (b.lower ?? ((bl) => new GoProgram(bl.mod).lowerBlock(bl)))(block);
+  return { importPath: block.importPath, synth: block.synth, res, goFiles: res.goFiles };
 }
 
 /**
- * The Go source files the lowered modules came from, to watch: files of the
- * user's packages, not of GOROOT or the module cache, nor goesm's own
- * replacements of standard packages (named goesm/natives/...).
- * @param {GoModuleOutput[]} modules
- * @param {string} moduleDir
+ * The Go blocks of the .vue and .astro files under root that belong to the
+ * Go module mod, made Go packages, and the packages JavaScript modules there
+ * import with go:. A file that fails is skipped: it reports its error when
+ * it is compiled. Directories Vite does not serve from are skipped: hidden
+ * ones, node_modules, build output (outDirs, and caches marked with
+ * CACHEDIR.TAG, such as Cargo's target).
+ * @param {string} root
+ * @param {import("./gomod.js").GoModule} mod
+ * @param {string[]} outDirs
+ * @returns {Promise<{ blocks: GoBlock[], imports: string[] }>}
  */
-async function watchedGoFiles(modules, moduleDir) {
-  const readOnly = await readOnlyGoDirs(moduleDir);
-  const files = new Set();
-  for (const m of modules) {
-    for (const s of m.map.sources ?? []) {
-      if (s.endsWith(".go") && path.isAbsolute(s) && !readOnly.some((d) => s.startsWith(d + path.sep))) files.add(s);
+export async function scanGoModule(root, mod, outDirs) {
+  const files = [];
+  const walk = (dir) => {
+    let entries;
+    try {
+      entries = readdirSync(dir, { withFileTypes: true });
+    } catch {
+      return;
     }
+    if (entries.some((e) => e.name === "CACHEDIR.TAG")) return;
+    for (const e of entries) {
+      const p = path.join(dir, e.name);
+      if (e.isDirectory()) {
+        if (!e.name.startsWith(".") && e.name !== "node_modules" && !outDirs.includes(p)) walk(p);
+      } else if (/\.(?:vue|astro|[cm]?[jt]sx?)$/.test(e.name)) {
+        files.push(p);
+      }
+    }
+  };
+  walk(root);
+
+  const inputs = [];
+  const imports = new Set();
+  for (const file of files) {
+    if (findGoModule(path.dirname(file))?.dir !== mod.dir) continue;
+    let code;
+    try {
+      code = readFileSync(file, "utf8");
+    } catch {
+      continue;
+    }
+    try {
+      if (file.endsWith(".vue")) {
+        if (!mayHaveGoSetup(code)) continue;
+        const { descriptor, errors } = parse(code, { filename: file, sourceMap: false });
+        if (!errors.length && descriptor.scriptSetup?.lang === "go") inputs.push(vueBlock(code, file, descriptor.scriptSetup, root));
+        continue;
+      }
+      if (file.endsWith(".astro") && mayHaveGoAstro(code)) {
+        const fm = goFrontmatter(code, file, root);
+        if (fm) inputs.push(frontmatterBlock(code, file, fm, root));
+        goScripts(code, fm ? fm.end : frontmatterEnd(code)).forEach((sc, i) => inputs.push(scriptBlock(code, file, sc, i, root)));
+      }
+    } catch {
+      continue;
+    }
+    for (const m of code.matchAll(/\b(?:from|import)\s*\(?\s*(["'])go:([^"'\s]+)\1/g)) imports.add(m[2]);
   }
-  return [...files];
+
+  const blocks = [];
+  let next = 0;
+  const worker = async () => {
+    while (next < inputs.length) {
+      const b = inputs[next++];
+      try {
+        blocks.push(await synthBlock(b));
+      } catch {
+        // reported when the file is compiled
+      }
+    }
+  };
+  await Promise.all(Array.from({ length: 8 }, worker));
+  return { blocks, imports: [...imports] };
 }
 
 /**
@@ -495,33 +551,6 @@ function packageName(filename) {
   let n = path.basename(filename).toLowerCase().replace(/[^a-z0-9_]/g, "_");
   if (!/^[a-z_]/.test(n)) n = "_" + n;
   return n;
-}
-
-function lineCol(code, offset) {
-  const before = code.slice(0, offset);
-  const line = before.split("\n").length;
-  return { line, column: offset - before.lastIndexOf("\n") };
-}
-
-function offsetOf(code, line, column) {
-  let off = 0;
-  for (let l = 1; l < line; l++) off = code.indexOf("\n", off) + 1;
-  return off + column - 1;
-}
-
-/** @param {SfcError} e @param {string} code */
-function withFrame(e, code) {
-  const off = offsetOf(code, e.line, e.column);
-  return { ...e, frame: generateCodeFrame(code, off, off + 1) };
-}
-
-function sfcError(file, code, offset, message, root) {
-  return new GosfcError([withFrame({ file, ...lineCol(code, offset), message }, code)], root);
-}
-
-function displayPath(file, root) {
-  const rel = path.relative(root, file);
-  return rel.startsWith("..") ? file : rel.split(path.sep).join("/");
 }
 
 // defaultsArg is the argument passing the `default:"..."` tags of the Props
