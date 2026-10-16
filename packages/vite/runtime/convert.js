@@ -61,7 +61,9 @@ export function fromGo(x, changed = noop) {
 export function readProps(zero, attrs, defaults = {}) {
   const props = { ...zero };
   for (const key of Object.keys(zero)) {
-    const name = key.replace(/^[A-Z]+(?=[A-Z][a-z]|$)|^[A-Z]/, (s) => s.toLowerCase());
+    // As Vue normalizes the declared name (camelize), so a json tag such as
+    // "display-name" is the prop displayName.
+    const name = key.replace(/^[A-Z]+(?=[A-Z][a-z]|$)|^[A-Z]/, (s) => s.toLowerCase()).replace(/-(\w)/g, (_, c) => c.toUpperCase());
     const kebab = name.replace(/[A-Z]/g, (c) => "-" + c.toLowerCase());
     const a = key in attrs ? attrs[key] : name in attrs ? attrs[name] : attrs[kebab];
     if (a !== undefined) props[key] = propToGo(zero[key], a);

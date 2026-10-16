@@ -2,6 +2,7 @@
   <div class="child">
     <span class="label">{{ props.Label }}</span>
     <span class="size">{{ props.Size }}</span>
+    <span class="note">{{ props["display-note"] }}</span>
     <span class="seen">{{ seen }}</span>
     <span class="shared">{{ ticks }}</span>
     <button @click="Pick">pick</button>
@@ -18,6 +19,8 @@ type Props struct {
 	Label string
 	Count int
 	Size  int `default:"20"`
+	// A hyphenated key: Vue declares the prop as displayNote.
+	Note string `json:"display-note"`
 }
 
 emit := vue.Emitter()

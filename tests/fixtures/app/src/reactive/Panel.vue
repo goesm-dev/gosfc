@@ -8,7 +8,7 @@
     <canvas ref="canvas" width="10" height="10"></canvas>
     <p class="canvas">{{ canvasTag }}</p>
     <Child class="first" :label="name" :count="ticks" @picked="Picked" />
-    <Child label="defaults" />
+    <Child label="defaults" display-note="noted" />
     <p class="picked">{{ picked }}</p>
     <p class="mounted">{{ mounted }}</p>
     <p class="watched">{{ watched }}</p>

@@ -178,3 +178,18 @@ println("hi")
   const e2 = await compileAstro(clash, component("TmpClash.astro", clash), { root: app }).then(() => assert.fail("expected an error"), (e) => e);
   assert.match(e2.message, /src\/TmpClash\.astro:4:1: Card is also the name of the import of "\.\/Card\.vue"/);
 });
+
+test("go: imports in comments and other strings import nothing", async () => {
+  const { goImports } = await import("../packages/vite/src/compile.js");
+  const code = [
+    'import { A } from "go:example.com/a";',
+    '// import "go:example.invalid/line"',
+    '/* export { B } from "go:example.invalid/block" */',
+    'const s = \'import "go:example.invalid/string"\';',
+    "const t = `from 'go:example.invalid/template'`;",
+    "<!-- import 'go:example.invalid/html' -->",
+    'const b = await import("go:example.com/b");',
+    "export * from 'go:example.com/c';",
+  ].join("\n");
+  assert.deepEqual(goImports(code), ["example.com/a", "example.com/b", "example.com/c"]);
+});

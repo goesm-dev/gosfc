@@ -112,6 +112,25 @@ export class GoProgram {
     return { modules: o.modules, runtime: o.runtime, goFiles: this.goFilesOf(importPath) };
   }
 
+  /**
+   * Leaves out the blocks of file other than those in keep: its Go block
+   * was removed, or the file was. Reports whether any was left out. (A scan
+   * still running reads the file as it is now.)
+   * @param {string} file
+   * @param {Set<string>} keep import paths of its blocks still in it
+   */
+  forget(file, keep) {
+    const abs = path.resolve(file);
+    let any = false;
+    for (const [importPath, b] of this.blocks) {
+      if (path.resolve(b.filename) === abs && !keep.has(importPath)) {
+        this.blocks.delete(importPath);
+        any = true;
+      }
+    }
+    return any;
+  }
+
   /** Makes the next lowering compile again (a .go file changed). */
   invalidate() {
     if (this.outcome) this.outcome.key = null;
