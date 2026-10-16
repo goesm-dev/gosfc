@@ -250,8 +250,10 @@ export default function gosfc() {
   async function compileImport(importPath, importer, ctx) {
     const key = importPath + "\0" + importer;
     const c = jsCompiled.get(key);
-    if (c && c.stamp === goStamp(c.goFiles)) return;
     const p = programFor(importer);
+    // Reused while the program still counts the import (a module that
+    // dropped it and imports it again registers it again).
+    if (c && c.stamp === goStamp(c.goFiles) && p?.importers.get(importPath)?.has(path.resolve(importer))) return;
     if (!p) throw new Error(`gosfc: no go.mod found for ${importer}, which imports go:${importPath}`);
     let result;
     try {
