@@ -136,6 +136,8 @@ type Props struct {
 	Count int `+"`json:\"n\"`"+`
 	Size, Gap int `+"`default:\"20\"`"+`
 	Label string `+"`default:\"none\"`"+`
+	hidden bool
+	Skip string `+"`json:\"-\"`"+`
 }
 
 upper := strings.ToUpper(props.Route)
@@ -162,6 +164,10 @@ upper := strings.ToUpper(props.Route)
 	// default tags, keyed like the props object.
 	if want := map[string]string{"Size": "20", "Gap": "20", "Label": "none"}; !reflect.DeepEqual(out.PropDefaults, want) {
 		t.Errorf("defaults %v, want %v", out.PropDefaults, want)
+	}
+	// The keys of the exported fields, which the glue declares as props.
+	if want := []string{"Route", "n", "Size", "Gap", "Label"}; !reflect.DeepEqual(out.PropKeys, want) {
+		t.Errorf("keys %v, want %v", out.PropKeys, want)
 	}
 
 	out = build(t, "type Props int\n")

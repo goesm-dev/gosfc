@@ -103,7 +103,7 @@ export default { plugins: [gosfc(), vue()] };
   </script>
   ```
 * メソッドとジェネリック関数は Go パッケージに置いてください。
-* props を受け取るには `type Props struct {...}` を宣言します。ブロックの中でその型の `props` 変数が使えます。フィールド `Route` は属性 `route`（json タグがあればその名前、または kebab-case の形）から読み、フィールドの型に変換します。文字列、bool、数値のほか、struct、スライス、ポインタ（`null` は nil）、関数も goesm の ABI のとおりに変換します。フィールドの `default:"..."` タグは、親が渡さなかった props の値になります。親が新しい props を渡すと `props` が置き換わり、テンプレート（`{{ props.Title }}`）も読み直します。props はルート要素にはフォールスルーしません。
+* props を受け取るには `type Props struct {...}` を宣言します。ブロックの中でその型の `props` 変数が使えます。フィールド `Route` は属性 `route`（json タグがあればその名前、または kebab-case の形）から読み、フィールドの型に変換します。文字列、bool、数値のほか、struct、スライス、ポインタ（`null` は nil）、関数も goesm の ABI のとおりに変換します。フィールドの `default:"..."` タグは、親が渡さなかった props の値になります。親が新しい props を渡すと `props` が置き換わり、テンプレート（`{{ props.Title }}`）も読み直します。フィールドは Vue の props として宣言されるので、ほかの属性（`class`、`style`、リスナー）は普通どおりルート要素にフォールスルーします。
 
   ```vue
   <script setup lang="go">

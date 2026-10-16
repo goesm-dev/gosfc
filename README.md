@@ -105,7 +105,7 @@ Components using `lang="ts"` or a plain `<script setup>` keep working alongside 
   </script>
   ```
 * Put methods and generic functions in a Go package.
-* To receive props, declare `type Props struct {...}`; the block then has a `props` variable of that type. Field `Route` is read from the attribute `route` (or the field's json tag name, or its kebab-case form), converted to the field's type: strings, bools and numbers, and structs, slices, pointers (`null` is nil) and functions as goesm's ABI converts them. A field's `default:"..."` tag fills a prop the parent leaves out. When the parent passes new props, `props` is replaced and the template reads it again (`{{ props.Title }}`). Props do not fall through to the root element.
+* To receive props, declare `type Props struct {...}`; the block then has a `props` variable of that type. Field `Route` is read from the attribute `route` (or the field's json tag name, or its kebab-case form), converted to the field's type: strings, bools and numbers, and structs, slices, pointers (`null` is nil) and functions as goesm's ABI converts them. A field's `default:"..."` tag fills a prop the parent leaves out. When the parent passes new props, `props` is replaced and the template reads it again (`{{ props.Title }}`). The fields are declared as Vue props, so other attributes (`class`, `style`, listeners) fall through to the root element as usual.
 
   ```vue
   <script setup lang="go">
