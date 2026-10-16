@@ -40,6 +40,7 @@ Astro ─────────────── routing / SSR / SSG / island
 cmd/gosfc/          Go 側の CLI（`gosfc synth`）。アプリの go.mod に tool として入る
 internal/synth/     <script setup lang="go"> と .astro の Go → synthetic Go（go/scanner のみ使用）
 packages/vite/      @gosfc/vite: Vite plugin。src/compile.js が SFC と .astro の変換の中心、
+                    src/program.js がアプリの Go を 1 つの goesm プログラムにまとめる、
                     src/goesm.js が goesm との唯一の境界、runtime/bridge.js が template binding、
                     runtime/astro.js が Go のフロントマターの binding、runtime/convert.js が両者のバインディングの値と props
 packages/astro/     @gosfc/astro: @astrojs/vue + @gosfc/vite を設定するだけの integration
@@ -54,7 +55,7 @@ tests/              Node のテスト（Astro build、Vite build / SSR / HMR、�
 1. `@gosfc/vite`（`enforce: "pre"`）は `.vue` のメインリクエストのうち `<script setup lang="go">` を含むものだけを変換します。それ以外の `.vue`（`lang="ts"`、素の `<script setup>`）には触れず、`@vitejs/plugin-vue` がそのまま処理します。
 2. `@vue/compiler-sfc` の `parse` でディスクリプターを得ます。Vue のパーサーは自作しません。
 3. Go ブロックを `go tool gosfc synth` に渡し、synthetic Go とトップレベルのバインディングの一覧を得ます（§4）。
-4. synthetic Go を `go tool goesm emit-ts -overlay` に渡します（§5）。成功すればパッケージごとの TypeScript とソースマップ、失敗すれば `.vue` 位置の診断が返ります。
+4. synthetic Go を、アプリのほかのすべての Go ブロックの synthetic Go と、JavaScript が `go:` でインポートするパッケージと一緒に `go tool goesm emit-ts -overlay` に渡します（§5）。1 つの Go モジュールの Go は 1 つの goesm プログラムです（`packages/vite/src/program.js`）。成功すればパッケージごとの TypeScript とソースマップ、失敗すれば `.vue` 位置の診断が返ります。
 5. Go ブロックだけを次の `<script setup lang="ts">` に置き換えます。テンプレート、`<style>`、`<style scoped>`、素の `<script>` は 1 バイトも変えません。行数も保つので、後ろにあるブロックの位置はずれません。
 
    ```ts
@@ -65,8 +66,9 @@ tests/              Node のテスト（Astro build、Vite build / SSR / HMR、�
    const total = __gosfc.binding("total");
    ```
 
-6. 以降は普通の Vue SFC として `@vitejs/plugin-vue` がテンプレート / スタイルをコンパイルします。`go:` のインポートはプラグインが goesm の出力（仮想モジュール、id は `gosfc:goesm/<import path>.<hash>.ts`、ランタイムは `gosfc:goesm/@goesm/runtime/*.ts`）に解決し、TypeScript は Vite 自身の変換に任せます。コンポーネント（と `go:` をインポートする JS モジュール）はそれぞれ別の goesm プログラムで、パッケージの出力はプログラム全体に依存します（ある関数値が一方では async、他方では同期になる、など）。そのため id のハッシュはモジュールのコードと、それがインポートするパッケージの id から作り、goesm の相対インポート（`./x.ts`）はその id に書き換えます。コードが一致するパッケージは 1 つのモジュール（とバンドラーのチャンク）を共有し、一致しないものは別々のモジュールになります。ランタイムはどのプログラムでも同じなので普通の id のままです。
-7. `.vue` 以外のモジュール（`.js`、`.ts`、`.astro`）が `go:<import path>` をインポートしている場合は、そのモジュールの transform で、インポートしたファイルが属する Go モジュールを基準に `goesm emit-ts <import path>` を実行し、同じ仮想ツリーに登録します。`.go` ファイルはそのモジュールの watch 対象になり、編集するとモジュールが読み直されます。
+6. 以降は普通の Vue SFC として `@vitejs/plugin-vue` がテンプレート / スタイルをコンパイルします。`go:` のインポートはプラグインが goesm の出力（仮想モジュール、id は `gosfc:goesm/<import path>.ts`、ランタイムは `gosfc:goesm/@goesm/runtime/*.ts`）に解決し、TypeScript は Vite 自身の変換に任せます。goesm がパッケージに出力するコードはプログラム全体に依存します（どのメソッドがインターフェース経由で呼ばれるか、関数値がブロックしうるか）。そのためコンポーネントごとに別のプログラムにすると、共有するパッケージをプログラムごとに出力して実行することになり、パッケージの変数もプログラムごとに別になってしまいます。1 つのプログラムなら各パッケージを 1 回だけ変換するので、Go のバイナリと同じく、パッケージレベルの `vue.Ref` はどのコンポーネントにとっても 1 つの Ref です（Vite のルートに複数の Go モジュールがある場合、2 つ目以降のプログラムは id に番号を付けます）。
+7. `.vue` 以外のモジュール（`.js`、`.ts`、`.astro`）が `go:<import path>` をインポートしている場合、そのパッケージは、インポートしたファイルが属する Go モジュールのプログラムのエントリーになります。`.go` ファイルはそのモジュールの watch 対象になり、編集するとモジュールが読み直されます。
+8. プログラムは、Vite のルートをスキャンして見つかったもの（`.vue` と `.astro` の Go ブロック、JavaScript のモジュールの `go:` のインポート）から始めます。隠しディレクトリ、`node_modules`、ビルドの出力先、Cargo の `target` のように `CACHEDIR.TAG` のあるディレクトリは飛ばします。こうすると最初のコンパイルからアプリ全体になり、不完全なプログラムのモジュールを配信することがありません。Go がコンパイルできないブロックはプログラムから外し、そのファイルだけのエラーとして報告します。`.go` ファイルのエラーはすべてのブロックのエラーになります。
 
 ## 4. synthetic Go
 
@@ -110,8 +112,9 @@ return func(gosfcBinding string) any {
 境界は `packages/vite/src/goesm.js` の 1 ファイルだけです。gosfc は goesm の CLI を、アプリの go.mod の tool ディレクティブで固定された版で呼びます（`go tool -n goesm` でビルド済みバイナリを得る）。
 
 ```
-goesm emit-ts -overlay <overlay.json> -o <dir> ./<rel>/_gosfc/<name>_vue
-  入力:  overlay.json は go command 標準の -overlay 形式 {"Replace": {"/abs/.../setup.go": "<一時ファイル>"}}
+goesm emit-ts -overlay <overlay.json> -o <dir> ./<rel>/_gosfc/<name>_vue ... <go: の import path> ...
+  入力:  overlay.json は go command 標準の -overlay 形式 {"Replace": {"/abs/.../setup.go": "<一時ファイル>", ...}}
+         指定したパッケージはすべて 1 つのプログラムのエントリーになる（goesm v0.0.1-beta.5 以降）
   出力:  <dir>/<import path>.ts (+ .ts.map)      Go package ごとに 1 module、map は .vue / .go を指す
          <dir>/@goesm/runtime/*.ts               goesm runtime（module 間と runtime への import は相対 `.ts` 指定）
   失敗:  exit 1、stderr に "<file>:<line>:<col>: <message> [<layer>]"（layer は go/parser・go/types・go list・goesm lowering）
@@ -150,9 +153,9 @@ goesm 側の変更はこの PoC のために 1 つだけです：`build` / `emit
 独自の HMR ランタイムはありません。判定と更新は `@vitejs/plugin-vue` と Vite のものです。
 
 * plugin-vue は HMR 時にファイルを読み直して前後のディスクリプターを比べます。gosfc は `handleHotUpdate` で HMR コンテキストの `read()` を差し替え、plugin-vue にはコンパイル後の SFC を見せます。その結果、テンプレートだけの変更は再レンダリング（Go の状態は残る）、Go ブロックの変更はコンポーネントのリロード（Go を再実行）になります。
-* バインディングが変わらない Go の変更でもスクリプトが変わるよう、glue には lowering 後のコードのハッシュを `useGo` の引数として入れています（plugin-vue はスクリプトを AST で比べるのでコメントでは足りません）。
-* `.go` ファイルの変更は、そのパッケージを使う `.vue` を無効化してリロードします。`addWatchFile` も登録しているので、HMR を切った開発サーバーや `vite build --watch` でも再コンパイルされます。
-* 生成モジュールは内容が変わった時だけ Vite のモジュールグラフで無効化し、Vite が付ける `?t=` で新しい版が読み込まれます。
+* バインディングが変わらない Go の変更でもスクリプトが変わるよう、glue にはそのコンポーネントのパッケージの lowering 後のコードのハッシュを `useGo` の引数として入れています（plugin-vue はスクリプトを AST で比べるのでコメントでは足りません）。
+* `.go` ファイルを変更するとプログラムを再コンパイルし、変わったモジュールは Vite の HMR でそれをインポートするコンポーネントに伝わってリロードされます。そのファイルをインポートするパッケージを持つ `.vue` も無効化します。`addWatchFile` も登録しているので、HMR を切った開発サーバーや `vite build --watch` でも再コンパイルされます。
+* 生成モジュールは内容が変わった時だけ Vite のモジュールグラフで無効化し、Vite が付ける `?t=` で新しい版が読み込まれます。コンポーネントの編集で、ページがすでに実行している、そのコンポーネント自身のパッケージ以外のモジュールが変わった場合（プログラムの事実が変わった場合）は、ページをリロードします。それらのモジュールは古いプログラムの状態を持っているためです。
 * `.astro` については、Astro 自身の HMR が前後のソースを比べ、スタイルだけが変わった場合はスタイルだけを更新します。gosfc は同じ方法で Astro に書き換え後のソースを見せます。`.go` の変更は、そのパッケージを使う `.astro` と `<script lang="go">` のモジュールを無効化します。
 * watch するのはユーザーの `.go` ファイルだけです。GOROOT とモジュールキャッシュのファイル、goesm による標準パッケージの置き換えは watch しません。
 
@@ -177,7 +180,7 @@ goesm 側の変更はこの PoC のために 1 つだけです：`build` / `emit
   ```
 
   `runtime/astro.js` はレンダリングごとに setup を 1 回実行し、ブロックする setup はその完了を待ちます。`Props` には Vue のブリッジと同じ規則（`runtime/convert.js`）で `Astro.props` を入れ、値は同じ ABI で変換されます。Astro はテンプレートを 1 回しかレンダリングしないので、リアクティビティはありません。パッケージのインポートには `go:` ではなく内容から決まる仮想 ID を使います。`.vue` 以外のモジュールから `go:` でインポートすると、パッケージが overlay なしでコンパイルされるためです。
-* **クライアントスクリプト。** `<script lang="go">` はそれぞれ `<script>import "gosfc:astro-script/<n>/<file>.js"</script>` になり、Astro からは処理対象の普通のスクリプトに見えます。Astro はクライアントを専用の Vite の環境でビルドするので、ID にファイルと番号を含めています。この ID を読み込むと、`.astro` ファイルを読み直し、n 番目の Go のスクリプトを独立した goesm のプログラムとしてコンパイルし、`import { GosfcSetup } from "<id>"; GosfcSetup();` を返します。SSR の環境では Astro がスクリプトを読み込まず、クライアントの環境では `.astro` のモジュールを書き換えません。クライアントの環境の `.astro` のモジュールは Astro がスタブに置き換えるためです。
+* **クライアントスクリプト。** `<script lang="go">` はそれぞれ `<script>import "gosfc:astro-script/<n>/<file>.js"</script>` になり、Astro からは処理対象の普通のスクリプトに見えます。Astro はクライアントを専用の Vite の環境でビルドするので、ID にファイルと番号を含めています。この ID を読み込むと、`.astro` ファイルを読み直し、n 番目の Go のスクリプトをプログラムのほかの部分と一緒にコンパイルし、`import { GosfcSetup } from "<id>"; GosfcSetup();` を返します。SSR の環境では Astro がスクリプトを読み込まず、クライアントの環境では `.astro` のモジュールを書き換えません。クライアントの環境の `.astro` のモジュールは Astro がスタブに置き換えるためです。
 * Vite の依存関係スキャナーは `.astro` の `<script>` 要素を TypeScript として読みます。Go を含むファイルについては、代わりに Go のフロントマターと他のスクリプトの JavaScript のインポートを見せます。
 
 ## 10. セキュリティ

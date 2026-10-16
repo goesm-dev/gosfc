@@ -40,6 +40,7 @@ Astro ─────────────── routing / SSR / SSG / island
 cmd/gosfc/          The Go-side CLI (`gosfc synth`). Added to the app's go.mod as a tool
 internal/synth/     <script setup lang="go"> (and the Go of .astro files) → synthetic Go (uses only go/scanner)
 packages/vite/      @gosfc/vite: the Vite plugin. src/compile.js is the core of the SFC and .astro transforms,
+                    src/program.js keeps the Go of the app as one goesm program,
                     src/goesm.js is the only boundary with goesm, runtime/bridge.js handles template bindings,
                     runtime/astro.js the bindings of a Go frontmatter, runtime/convert.js the binding values and props of both
 packages/astro/     @gosfc/astro: an integration that only configures @astrojs/vue + @gosfc/vite
@@ -54,7 +55,7 @@ There is no separate `core` package. For now the Vite plugin is the only consume
 1. `@gosfc/vite` (`enforce: "pre"`) transforms only those main requests for `.vue` files that contain `<script setup lang="go">`. Other `.vue` files (`lang="ts"`, a plain `<script setup>`) are left untouched and processed by `@vitejs/plugin-vue` as usual.
 2. The descriptor is obtained with `parse` from `@vue/compiler-sfc`. gosfc does not have its own Vue parser.
 3. The Go block is passed to `go tool gosfc synth`, which returns the synthetic Go and the list of top-level bindings (§4).
-4. The synthetic Go is passed to `go tool goesm emit-ts -overlay` (§5). On success it returns TypeScript and a source map per package; on failure it returns diagnostics at `.vue` positions.
+4. The synthetic Go is passed to `go tool goesm emit-ts -overlay` (§5) together with the synthetic Go of every other Go block of the app and the packages its JavaScript imports with `go:`: the Go of a Go module is one goesm program (`packages/vite/src/program.js`). On success it returns TypeScript and a source map per package; on failure it returns diagnostics at `.vue` positions.
 5. Only the Go block is replaced with the following `<script setup lang="ts">`. The template, `<style>`, `<style scoped>`, and a plain `<script>` are not changed by a single byte. The line count is preserved too, so the positions of later blocks do not shift.
 
    ```ts
@@ -65,8 +66,9 @@ There is no separate `core` package. For now the Vite plugin is the only consume
    const total = __gosfc.binding("total");
    ```
 
-6. From here on, `@vitejs/plugin-vue` compiles the template / style as for an ordinary Vue SFC. The plugin resolves `go:` imports to goesm's output (virtual modules with ids `gosfc:goesm/<import path>.<hash>.ts`, and `gosfc:goesm/@goesm/runtime/*.ts` for the runtime), and leaves TypeScript to Vite's own transform. Each component (and each JS module that imports `go:`) is a separate goesm program, and a package's output depends on the whole program (for example, a function value may be async in one program and synchronous in another). The hash in the id is therefore computed from the module's code and the ids of the packages it imports, and goesm's relative imports (`./x.ts`) are rewritten to those ids. Packages whose code matches share one module (and one bundler chunk); those that differ become separate modules. The runtime is the same in every program, so it keeps a plain id.
-7. When a module other than `.vue` (`.js`, `.ts`, `.astro`) imports `go:<import path>`, that module's transform runs `goesm emit-ts <import path>` relative to the Go module the importing file belongs to, and registers the result in the same virtual tree. The `.go` files become watched files of that module, and editing them reloads the module.
+6. From here on, `@vitejs/plugin-vue` compiles the template / style as for an ordinary Vue SFC. The plugin resolves `go:` imports to goesm's output (virtual modules with ids `gosfc:goesm/<import path>.ts`, and `gosfc:goesm/@goesm/runtime/*.ts` for the runtime), and leaves TypeScript to Vite's own transform. The code goesm emits for a package depends on the whole program (which methods are called through interfaces, whether a function value may block), so separate programs per component would each emit, and run, their own copy of a package the components share, with its own copy of the package's variables. One program lowers each package once: a package-level `vue.Ref` is one Ref for every component, as in a Go binary. (When the Vite root holds several Go modules, the programs after the first add their number to the ids.)
+7. When a module other than `.vue` (`.js`, `.ts`, `.astro`) imports `go:<import path>`, the package becomes an entry of the program of the Go module the importing file belongs to. The `.go` files become watched files of that module, and editing them reloads the module.
+8. The program starts from what a scan of the Vite root finds (Go blocks of `.vue` and `.astro` files and `go:` imports of JavaScript modules; hidden directories, `node_modules`, the build output and directories marked with `CACHEDIR.TAG`, such as Cargo's `target`, are skipped), so that the first compilation is already the whole app and no module is served from an incomplete program. A block whose Go does not compile is left out of the program and reports its error for its own file; an error in a `.go` file is the error of every block.
 
 ## 4. Synthetic Go
 
@@ -110,8 +112,9 @@ return func(gosfcBinding string) any {
 The boundary is a single file, `packages/vite/src/goesm.js`. gosfc calls goesm's CLI at the version pinned by the tool directive in the app's go.mod (it gets the built binary with `go tool -n goesm`).
 
 ```
-goesm emit-ts -overlay <overlay.json> -o <dir> ./<rel>/_gosfc/<name>_vue
-  Input:   overlay.json uses the go command's standard -overlay format {"Replace": {"/abs/.../setup.go": "<temporary file>"}}
+goesm emit-ts -overlay <overlay.json> -o <dir> ./<rel>/_gosfc/<name>_vue ... <go: import path> ...
+  Input:   overlay.json uses the go command's standard -overlay format {"Replace": {"/abs/.../setup.go": "<temporary file>", ...}}
+           every package named is an entry of one program (goesm v0.0.1-beta.5 or newer)
   Output:  <dir>/<import path>.ts (+ .ts.map)      one module per Go package; maps point at .vue / .go
            <dir>/@goesm/runtime/*.ts               the goesm runtime (imports between modules and into the runtime use relative `.ts` paths)
   Failure: exit 1, with "<file>:<line>:<col>: <message> [<layer>]" on stderr (layer is go/parser, go/types, go list, or goesm lowering)
@@ -150,9 +153,9 @@ Only one change was made on the goesm side for this PoC: adding `-overlay` to `b
 There is no custom HMR runtime. The decisions and updates are those of `@vitejs/plugin-vue` and Vite.
 
 * On HMR, plugin-vue re-reads the file and compares the old and new descriptors. gosfc replaces the HMR context's `read()` in `handleHotUpdate`, so plugin-vue sees the compiled SFC. As a result, a template-only change causes a re-render (Go state is kept), and a change to the Go block causes a component reload (Go runs again).
-* So that the script changes even for a Go change that leaves the bindings unchanged, the glue passes a hash of the lowered code as an argument to `useGo` (plugin-vue compares scripts by AST, so a comment would not be enough).
-* A change to a `.go` file invalidates and reloads the `.vue` files that use that package. `addWatchFile` is also registered, so recompilation also happens on a dev server with HMR disabled and with `vite build --watch`.
-* Generated modules are invalidated in Vite's module graph only when their content changes, and the new version is loaded via the `?t=` that Vite adds.
+* So that the script changes even for a Go change that leaves the bindings unchanged, the glue passes a hash of the lowered code of the component's package as an argument to `useGo` (plugin-vue compares scripts by AST, so a comment would not be enough).
+* A change to a `.go` file compiles the program again, and the modules that changed go through Vite's HMR to the components importing them, which reload; the `.vue` files whose packages import the file are invalidated too. `addWatchFile` is also registered, so recompilation also happens on a dev server with HMR disabled and with `vite build --watch`.
+* Generated modules are invalidated in Vite's module graph only when their content changes, and the new version is loaded via the `?t=` that Vite adds. When an edit to a component changes modules other than its own package's that the page already runs (the program's facts changed), the page reloads: those modules hold the state of the old program.
 * For `.astro` files, Astro's own HMR compares the old and new source to update styles alone when only styles changed; gosfc shows it the rewritten source the same way. A `.go` change invalidates the `.astro` files and the `<script lang="go">` modules that use the package.
 * Only the user's `.go` files are watched; files in GOROOT and the module cache, and goesm's replacements of standard packages, are not.
 
@@ -177,7 +180,7 @@ An `.astro` file whose frontmatter opens with `---go`, or that contains `<script
   ```
 
   `runtime/astro.js` runs the setup once per render and awaits it when it blocks, fills `Props` from `Astro.props` with the rules of the Vue bridge (`runtime/convert.js`), and gets the values converted by the same ABI. Astro renders a template once, so there is no reactivity. The package is imported by its content-addressed id rather than `go:`, because a `go:` import from a module that is not a `.vue` file compiles the package without the overlay.
-* **Client scripts.** Each `<script lang="go">` becomes `<script>import "gosfc:astro-script/<n>/<file>.js"</script>`, an ordinary processed script to Astro. The id names the file and the index because Astro builds the client in a Vite environment of its own: loading the id re-reads the `.astro` file, compiles its n-th Go script as a goesm program of its own, and returns `import { GosfcSetup } from "<id>"; GosfcSetup();`. In the SSR environment Astro does not load scripts, and in the client environment `.astro` modules are not rewritten (Astro replaces them with a stub).
+* **Client scripts.** Each `<script lang="go">` becomes `<script>import "gosfc:astro-script/<n>/<file>.js"</script>`, an ordinary processed script to Astro. The id names the file and the index because Astro builds the client in a Vite environment of its own: loading the id re-reads the `.astro` file, compiles its n-th Go script with the rest of the program, and returns `import { GosfcSetup } from "<id>"; GosfcSetup();`. In the SSR environment Astro does not load scripts, and in the client environment `.astro` modules are not rewritten (Astro replaces them with a stub).
 * Vite's dependency scanner reads the `<script>` elements of `.astro` files as TypeScript; for a file with Go it is shown the JavaScript imports of the Go frontmatter and of the other scripts instead.
 
 ## 10. Security

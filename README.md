@@ -156,12 +156,12 @@ vue.Watch(func() int { return seconds.Get() }, func(n int) { emit("tick", n) })
 </script>
 ```
 
-* A Ref bound in the template reads as its value and is followed whoever sets it, from any package: Refs can live in a Go package and be shared by components. `v-model` and `ref="..."` write it with `Set`.
+* A Ref bound in the template reads as its value and is followed whoever sets it, from any package: Refs can live in a Go package and be shared by components. The Go of all the components (and the packages JavaScript imports with `go:`) is one goesm program, as the packages of a Go binary are, so a package's variables are one set for the whole app. `v-model` and `ref="..."` write it with `Set`.
 * A Go function called from the template is re-run when a Ref it read changes.
 * `vue.NewComputed` derives a cached value; `vue.Watch` and `vue.WatchEffect` run side effects, and also re-run when the component's props change.
 * `vue.OnMounted`, `OnBeforeUnmount`, `OnUnmounted` and `vue.Emitter` belong to the component being set up: call them from the top level of the block. `emit("update:modelValue", v)` with a `ModelValue` prop makes the component work with `v-model`.
 * Outside a goesm build (`go test`), Refs and Computeds hold and compute values, and watchers and hooks never run.
-* Reading Ref bindings needs a goesm newer than v0.0.1-beta.4 (handles inside an `any` have their methods).
+* gosfc needs goesm v0.0.1-beta.5 or newer: handles inside an `any` have their methods, and several packages build as one program.
 
 ## Go in .astro files
 
