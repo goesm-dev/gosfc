@@ -12,6 +12,7 @@
     <p class="picked">{{ picked }}</p>
     <p class="mounted">{{ mounted }}</p>
     <p class="watched">{{ watched }}</p>
+    <button class="bump" @click="bump">{{ clicks }}</button>
   </div>
 </template>
 
@@ -36,6 +37,10 @@ canvasTag := vue.NewRef("")
 picked := vue.NewRef("")
 mounted := vue.NewRef(false)
 watched := vue.NewRef(0)
+
+// clicks is a plain variable; bump, a function in a Ref, changes it.
+clicks := 0
+bump := vue.NewRef(func() { clicks++ })
 
 func Parity() string {
 	if ticks.Get()%2 == 0 {
