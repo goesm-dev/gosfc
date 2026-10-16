@@ -49,6 +49,7 @@ import {
   compileAstro,
   compileAstroScript,
   compileSfc,
+  goImports,
   mayHaveGoAstro,
   mayHaveGoSetup,
   parseAstroScriptId,
@@ -65,8 +66,6 @@ const GO_PREFIX = TREE_PREFIX;
 const RT_PREFIX = TREE_PREFIX + "@goesm/runtime/";
 const BRIDGE_ID = RUNTIME_ID;
 const GO_IMPORT = /["']go:/;
-// Specifiers of static and dynamic imports and re-exports: from "go:..." and import("go:...").
-const GO_IMPORTS = /\b(?:from|import)\s*\(?\s*(["'])go:([^"'\s]+)\1/g;
 // Relative specifiers in goesm's modules: import / export ... from "./x.ts", import("../y.ts").
 const REL_IMPORTS = /(\b(?:from|import)\s*\(?\s*)"(\.\.?\/[^"]+)"/g;
 const CONVERT_ID = PREFIX + "convert.js";
@@ -176,6 +175,20 @@ export default function gosfc() {
       if (server && changed.some((id) => graphModules(id).length)) server.ws.send({ type: "full-reload" });
     }
   }
+  /**
+   * Leaves the blocks file no longer has out of its program (forget) and
+   * compiles the program again without them, as a .go edit does: the
+   * removed blocks no longer make shared functions async or keep methods.
+   */
+  async function forget(file, keep = new Set()) {
+    const mod = findGoModule(path.dirname(file));
+    const p = mod && programs.get(mod.dir);
+    if (!p || !p.forget(file, keep)) return;
+    p.invalidate();
+    await p.compile().catch(() => {});
+    const changed = publish(p);
+    if (server && [...changed].some((id) => graphModules(id).length)) server.ws.send({ type: "full-reload" });
+  }
   const addGoDependent = (goFile, id) => {
     if (!goDependents.has(goFile)) goDependents.set(goFile, new Set());
     goDependents.get(goFile).add(id);
@@ -187,8 +200,10 @@ export default function gosfc() {
   async function compile(code, id) {
     const c = compiled.get(id);
     if (c && c.code === code && (!c.result || c.stamp === goStamp(c.result.goFiles))) return c.result;
-    const result = await compileSfc(code, id, { root: config.root, lower });
+    const blocks = new Set();
+    const result = await compileSfc(code, id, { root: config.root, lower: (b) => (blocks.add(b.importPath), lower(b)) });
     compiled.set(id, { code, result, stamp: result ? goStamp(result.goFiles) : "" });
+    await forget(id, blocks);
     return result;
   }
 
@@ -372,11 +387,16 @@ export default function gosfc() {
         // A JS / TS / Astro module importing Go packages: compile them now,
         // so that the .go files they come from are watched on behalf of this
         // module (an edit then reloads it).
-        for (const m of code.matchAll(GO_IMPORTS)) await compileImport(m[2], file, this);
+        for (const i of goImports(code)) await compileImport(i, file, this);
         return null;
       }
       if (!id.endsWith(".vue") || id.includes("?") || id.includes("\0")) return null;
-      if (!mayHaveGoSetup(code)) return null;
+      if (!mayHaveGoSetup(code)) {
+        // A component whose Go block was removed.
+        compiled.delete(id);
+        await forget(id);
+        return null;
+      }
       let result;
       try {
         result = await compile(code, id);
@@ -408,6 +428,14 @@ export default function gosfc() {
     // styles only when only styles changed); it is shown the rewritten source
     // too. A .go edit invalidates the .astro files and client scripts using
     // the package.
+    // A deleted .vue or .astro file leaves the program.
+    async watchChange(id, change) {
+      if (change.event !== "delete" || !/\.(vue|astro)$/.test(id)) return;
+      compiled.delete(id);
+      astroCompiled.delete(id);
+      await forget(id);
+    },
+
     async handleHotUpdate(ctx) {
       if (ctx.file.endsWith(".astro")) {
         const read = ctx.read;

@@ -58,6 +58,8 @@ test("vue package: Refs, Computeds, watchers, hooks, v-model, template refs, pro
   // Prop defaults: a field's default tag fills a prop the parent leaves out.
   assert.equal(await text(".child .size"), "20");
   assert.equal(await page.locator(".child .label").nth(1).textContent(), "defaults");
+  // A prop whose json key is hyphenated.
+  assert.equal(await page.locator(".child .note").nth(1).textContent(), "noted");
 
   // Emits: the child's event reaches the parent's Go handler with its arguments.
   await page.click(".child button");

@@ -453,6 +453,23 @@ async function compileGoBlock(b) {
   return { importPath: block.importPath, synth: block.synth, res, goFiles: res.goFiles };
 }
 
+// The import paths a module imports with go: specifiers, in static and
+// dynamic imports and re-exports (from "go:..." and import("go:...")).
+// Comments and the contents of other strings are skipped as whole tokens,
+// so text that only mentions such an import imports nothing.
+const GO_IMPORT_TOKENS =
+  /<!--[\s\S]*?-->|\/\/[^\n]*|\/\*[\s\S]*?\*\/|\b(?:from|import)\s*\(?\s*(["'])go:([^"'\s]+)\1|"(?:\\[\s\S]|[^"\\\n])*"|'(?:\\[\s\S]|[^'\\\n])*'|`(?:\\[\s\S]|[^`\\])*`/g;
+
+/**
+ * @param {string} code
+ * @returns {string[]}
+ */
+export function goImports(code) {
+  const out = [];
+  for (const m of code.matchAll(GO_IMPORT_TOKENS)) if (m[2]) out.push(m[2]);
+  return out;
+}
+
 /**
  * The Go blocks of the .vue and .astro files under root that belong to the
  * Go module mod, made Go packages, and the packages JavaScript modules there
@@ -511,7 +528,7 @@ export async function scanGoModule(root, mod, outDirs) {
     } catch {
       continue;
     }
-    for (const m of code.matchAll(/\b(?:from|import)\s*\(?\s*(["'])go:([^"'\s]+)\1/g)) imports.add(m[2]);
+    for (const i of goImports(code)) imports.add(i);
   }
 
   const blocks = [];
@@ -562,10 +579,13 @@ function defaultsArg(synth) {
 
 // propNames are the names Vue declares the Props fields as props by: the key
 // of the props object (json tag name or field name) with its leading capitals
-// lowered, as readProps (runtime/convert.js) reads them. Vue matches the
+// lowered and camelized as Vue normalizes a declared name ("display-name" is
+// displayName), as readProps (runtime/convert.js) reads them. Vue matches the
 // kebab-case attributes to them too.
 function propNames(synth) {
-  const names = (synth.propKeys ?? []).map((k) => k.replace(/^[A-Z]+(?=[A-Z][a-z]|$)|^[A-Z]/, (s) => s.toLowerCase()));
+  const names = (synth.propKeys ?? []).map((k) =>
+    k.replace(/^[A-Z]+(?=[A-Z][a-z]|$)|^[A-Z]/, (s) => s.toLowerCase()).replace(/-(\w)/g, (_, c) => c.toUpperCase()),
+  );
   return [...new Set(names)].filter((n) => n !== "key" && n !== "ref");
 }
 
