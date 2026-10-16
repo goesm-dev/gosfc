@@ -169,6 +169,9 @@ println("hi")
   assert.equal(r.code.split("\n").length, source.split("\n").length, "line count changed");
   assert.ok(r.code.includes("\n---\n\n<Card>{title}: {total}</Card>\n"), "template changed");
   assert.match(r.code, /<script>import "gosfc:astro-script\/0\/.*\/src\/TmpPage\.astro\.js";\n\n<\/script>/);
+  // The import paths of the file's blocks, for the program to forget the
+  // ones removed later.
+  assert.deepEqual(r.blocks, ["example.com/fixture/src/_gosfc/tmppage_astro", "example.com/fixture/src/_gosfc/tmppage_astro_script0"]);
 
   // Errors are reported at .astro positions.
   const bad = `---go\nimport Card "./Card.vue"\n\nn := 1\nvar s string = n\nCard := 2\n---\n`;

@@ -176,14 +176,15 @@ export default function gosfc() {
     }
   }
   /**
-   * Leaves the blocks file no longer has out of its program (forget) and
-   * compiles the program again without them, as a .go edit does: the
-   * removed blocks no longer make shared functions async or keep methods.
+   * Leaves the blocks file no longer has out of its program (forget), or
+   * the go: imports of a JavaScript module that no longer imports them
+   * (imports), and compiles the program again without them, as a .go edit
+   * does: what left no longer makes shared functions async or keeps methods.
    */
-  async function forget(file, keep = new Set()) {
+  async function forget(file, keep = new Set(), imports = false) {
     const mod = findGoModule(path.dirname(file));
     const p = mod && programs.get(mod.dir);
-    if (!p || !p.forget(file, keep)) return;
+    if (!p || !(imports ? p.forgetImports(file, keep) : p.forget(file, keep))) return;
     p.invalidate();
     await p.compile().catch(() => {});
     const changed = publish(p);
@@ -226,7 +227,12 @@ export default function gosfc() {
   // register for compileAstro: the id of a block's package in the program of
   // the .astro file.
   const register = (file) => (importPath) => idOf(programFor(file), importPath);
-  const compileAstroFile = (code, id) => cached(id, code, () => compileAstro(code, id, { root: config.root, register: register(id), lower }));
+  async function compileAstroFile(code, id) {
+    const result = await cached(id, code, () => compileAstro(code, id, { root: config.root, register: register(id), lower }));
+    // The blocks removed from the file leave the program.
+    await forget(id, new Set(result?.blocks ?? []));
+    return result;
+  }
 
   /** Reports a GosfcError at its .vue / .astro position. */
   function fail(ctx, e) {
@@ -361,7 +367,10 @@ export default function gosfc() {
         } catch {
           return null;
         }
-        if (!mayHaveGoAstro(code)) return null;
+        if (!mayHaveGoAstro(code)) {
+          await forget(id);
+          return null;
+        }
         let result;
         try {
           result = await compileAstroFile(code, id);
@@ -383,12 +392,16 @@ export default function gosfc() {
 
     async transform(code, id) {
       const file = id.split("?")[0];
-      if (!file.endsWith(".vue") && !id.startsWith(PREFIX) && !id.startsWith("\0") && GO_IMPORT.test(code)) {
+      if (!file.endsWith(".vue") && !id.startsWith(PREFIX) && !id.startsWith("\0")) {
         // A JS / TS / Astro module importing Go packages: compile them now,
         // so that the .go files they come from are watched on behalf of this
-        // module (an edit then reloads it).
-        for (const i of goImports(code)) await compileImport(i, file, this);
-        return null;
+        // module (an edit then reloads it). The packages a JavaScript or
+        // TypeScript module no longer imports leave the program (an .astro
+        // file's imports are spread over several modules).
+        const imports = GO_IMPORT.test(code) ? goImports(code) : [];
+        for (const i of imports) await compileImport(i, file, this);
+        if (id === file && !file.endsWith(".astro")) await forget(file, new Set(imports), true);
+        if (imports.length) return null;
       }
       if (!id.endsWith(".vue") || id.includes("?") || id.includes("\0")) return null;
       if (!mayHaveGoSetup(code)) {
@@ -428,12 +441,13 @@ export default function gosfc() {
     // styles only when only styles changed); it is shown the rewritten source
     // too. A .go edit invalidates the .astro files and client scripts using
     // the package.
-    // A deleted .vue or .astro file leaves the program.
+    // A deleted file's Go blocks and go: imports leave the program.
     async watchChange(id, change) {
-      if (change.event !== "delete" || !/\.(vue|astro)$/.test(id)) return;
+      if (change.event !== "delete") return;
       compiled.delete(id);
       astroCompiled.delete(id);
       await forget(id);
+      await forget(id, new Set(), true);
     },
 
     async handleHotUpdate(ctx) {
