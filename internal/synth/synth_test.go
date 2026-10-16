@@ -134,6 +134,8 @@ import "strings"
 type Props struct {
 	Route string
 	Count int `+"`json:\"n\"`"+`
+	Size, Gap int `+"`default:\"20\"`"+`
+	Label string `+"`default:\"none\"`"+`
 }
 
 upper := strings.ToUpper(props.Route)
@@ -149,8 +151,17 @@ upper := strings.ToUpper(props.Route)
 			t.Errorf("missing %q in\n%s", want, out.Go)
 		}
 	}
-	if got := names(out.Bindings); !reflect.DeepEqual(got, []string{"upper"}) {
+	// The template reads the props as props.Field.
+	if got := names(out.Bindings); !reflect.DeepEqual(got, []string{"props", "upper"}) {
 		t.Errorf("bindings %v", got)
+	}
+	// The bridge passes changed props through the setter.
+	if want := `case "gosfc:props":`; !strings.Contains(out.Go, want) {
+		t.Errorf("missing %q in\n%s", want, out.Go)
+	}
+	// default tags, keyed like the props object.
+	if want := map[string]string{"Size": "20", "Gap": "20", "Label": "none"}; !reflect.DeepEqual(out.PropDefaults, want) {
+		t.Errorf("defaults %v, want %v", out.PropDefaults, want)
 	}
 
 	out = build(t, "type Props int\n")

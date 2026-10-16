@@ -51,6 +51,7 @@ import (
 	"fmt"
 	"go/scanner"
 	"go/token"
+	"reflect"
 	"sort"
 	"strconv"
 	"strings"
@@ -65,6 +66,11 @@ const SetupFunc = "GosfcSetup"
 // PropsFunc returns the zero value of the block's Props type, when the block
 // declares one.
 const PropsFunc = "GosfcProps"
+
+// SetPropsBinding is the name under which the lookup function returns the
+// function that replaces the props of the instance. It is not a Go
+// identifier, so it cannot collide with a binding.
+const SetPropsBinding = "gosfc:props"
 
 // PropsType is the name of the type that declares a component's props.
 const PropsType = "Props"
@@ -117,6 +123,9 @@ type Output struct {
 	Diagnostics []Diagnostic `json:"diagnostics"`
 	// Props is true when the block declares `type Props struct {...}`.
 	Props bool `json:"props"`
+	// PropDefaults are the `default:"..."` tags of the Props fields, keyed
+	// like the props object (the json tag name, or the field name).
+	PropDefaults map[string]string `json:"propDefaults,omitempty"`
 	// JSImports are the imports of JavaScript modules, in source order.
 	JSImports []JSImport `json:"jsImports"`
 }
@@ -336,6 +345,9 @@ func Build(in Input) Output {
 				// Props is the setup function's parameter type, so it is
 				// declared at package level.
 				out.Props = true
+				out.PropDefaults = propDefaults(it.toks[3:])
+				// The template reads the props as props.Field.
+				bind(tok{off: it.toks[1].off, lit: "props"}, "var")
 				importsDone = true
 				l, c := pos(it.start())
 				directive(&propsDecl, l, c)
@@ -394,6 +406,10 @@ func Build(in Input) Output {
 	sort.Slice(names, func(i, j int) bool { return names[i].Name < names[j].Name })
 	for _, bd := range names {
 		fmt.Fprintf(&b, "case %s:\nreturn %s\n", strconv.Quote(bd.Name), bd.Name)
+	}
+	if out.Props {
+		// The bridge passes the props again whenever they change.
+		fmt.Fprintf(&b, "case %s:\nreturn func(p %s) { props = p }\n", strconv.Quote(SetPropsBinding), PropsType)
 	}
 	b.WriteString("}\nreturn nil\n}\n}\n")
 	out.Go = b.String()
@@ -600,4 +616,63 @@ func blankLine(src string) bool {
 		prev = off + len(lit)
 	}
 	return strings.Count(src[prev:], "\n") > 1
+}
+
+// propDefaults reads the `default:"..."` tags of the fields of a struct type,
+// given the tokens after `struct`. A field's key is its json tag name, or its
+// name, as the props object names it.
+func propDefaults(toks []tok) map[string]string {
+	var defaults map[string]string
+	depth := 0
+	var field []tok
+	flush := func() {
+		f := field
+		field = nil
+		if len(f) < 3 || f[len(f)-1].tok != token.STRING {
+			return
+		}
+		raw, err := strconv.Unquote(f[len(f)-1].lit)
+		if err != nil {
+			return
+		}
+		tag := reflect.StructTag(raw)
+		def, ok := tag.Lookup("default")
+		if !ok {
+			return
+		}
+		for _, n := range identList(f) {
+			key := n.lit
+			if j, _, _ := strings.Cut(tag.Get("json"), ","); j != "" && j != "-" {
+				key = j
+			}
+			if defaults == nil {
+				defaults = map[string]string{}
+			}
+			defaults[key] = def
+		}
+	}
+	for _, t := range toks {
+		switch t.tok {
+		case token.LBRACE, token.LPAREN, token.LBRACK:
+			depth++
+			if depth == 1 {
+				continue
+			}
+		case token.RBRACE, token.RPAREN, token.RBRACK:
+			depth--
+			if depth == 0 {
+				flush()
+				return defaults
+			}
+		case token.SEMICOLON:
+			if depth == 1 {
+				flush()
+				continue
+			}
+		}
+		if depth >= 1 {
+			field = append(field, t)
+		}
+	}
+	return defaults
 }

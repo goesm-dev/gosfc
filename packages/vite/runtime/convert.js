@@ -52,19 +52,35 @@ export function fromGo(x, changed = noop) {
 }
 
 /**
- * Builds the props object of a block from props given by name.
+ * Builds the props object of a block from props given by name. A prop that
+ * is not given takes the field's `default:"..."` tag, if it has one.
  * @param {Record<string, unknown>} zero the block's zero Props value, as JavaScript sees it
  * @param {Record<string, unknown>} attrs
+ * @param {Record<string, string>} [defaults] the `default` tags, by key
  */
-export function readProps(zero, attrs) {
+export function readProps(zero, attrs, defaults = {}) {
   const props = { ...zero };
   for (const key of Object.keys(zero)) {
     const name = key.replace(/^[A-Z]+(?=[A-Z][a-z]|$)|^[A-Z]/, (s) => s.toLowerCase());
     const kebab = name.replace(/[A-Z]/g, (c) => "-" + c.toLowerCase());
     const a = key in attrs ? attrs[key] : name in attrs ? attrs[name] : attrs[kebab];
     if (a !== undefined) props[key] = propToGo(zero[key], a);
+    else if (key in defaults) props[key] = defaultToGo(zero[key], defaults[key]);
   }
   return props;
+}
+
+// defaultToGo converts a default tag for the field whose zero value is zero.
+function defaultToGo(zero, d) {
+  switch (typeof zero) {
+    case "number":
+      return Number(d);
+    case "boolean":
+      return d === "true";
+    case "bigint":
+      return BigInt(d);
+  }
+  return d;
 }
 
 // propToGo converts an attribute for the field whose zero value is zero.
