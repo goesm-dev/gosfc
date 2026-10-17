@@ -277,16 +277,16 @@ function vueBlock(code, filename, descriptor, root) {
 /**
  * Returns the names the template and the style's v-bind() may reference,
  * a superset of the bindings they read, or null when they cannot be told
- * (no template, or one in another language or with errors): the free
- * identifiers of the compiled template, the components and directives it
- * resolves by name, and the static ref="..." names.
+ * (no template, or one in another file, in another language or with
+ * errors): the free identifiers of the compiled template, the components
+ * and directives it resolves by name, and the static ref="..." names.
  * @param {import("@vue/compiler-sfc").SFCDescriptor} descriptor
  * @param {string} filename
  * @returns {string[] | null}
  */
 function templateNames(descriptor, filename) {
   const t = descriptor.template;
-  if (!t || (t.lang && t.lang !== "html")) return null;
+  if (!t || t.src || (t.lang && t.lang !== "html")) return null;
   const r = compileTemplate({ source: t.content, filename, id: "gosfc", compilerOptions: { prefixIdentifiers: true } });
   if (r.errors.length) return null;
   const names = new Set();
