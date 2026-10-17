@@ -161,7 +161,7 @@ vue.Watch(func() int { return seconds.Get() }, func(n int) { emit("tick", n) })
 * `vue.NewComputed` derives a cached value; `vue.Watch` and `vue.WatchEffect` run side effects, and also re-run when the component's props change.
 * `vue.OnMounted`, `OnBeforeUnmount`, `OnUnmounted` and `vue.Emitter` belong to the component being set up: call them from the top level of the block. `emit("update:modelValue", v)` with a `ModelValue` prop makes the component work with `v-model`.
 * Outside a goesm build (`go test`), Refs and Computeds hold and compute values, and watchers and hooks never run.
-* gosfc needs goesm v0.0.1-beta.5 or newer: handles inside an `any` have their methods, and several packages build as one program.
+* gosfc needs goesm v0.0.1-beta.6 or newer: handles inside an `any` have their methods, several packages build as one program, and a component's function variables (`update := func() {...}`) do not make its setup async because some other function value of the app blocks.
 
 ## Go in .astro files
 
