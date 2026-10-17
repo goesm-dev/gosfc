@@ -124,3 +124,30 @@ test("go: imports removed from an .astro file leave the program", async (t) => {
   await component();
   await goStillCompiles(5);
 });
+
+test("a <script lang=go> removed from an .astro file and restored as it was is lowered again", async (t) => {
+  mkdirSync(path.join(dir, "only"), { recursive: true });
+  const only = (body) => writeFileSync(path.join(dir, "only", "only.go"), `package only\n\nfunc N() int { return ${body} }\n`);
+  only("1");
+  writeFileSync(path.join(dir, "B.vue"), goComponent("", "2"));
+  const page = path.join(dir, "script.astro");
+  const withScript = '<p>hi</p>\n<script lang="go">\nimport "example.com/fixture/src/forget/only"\n\nprintln(only.N())\n</script>\n';
+  writeFileSync(page, withScript);
+  const server = await createServer({ root, configFile: false, logLevel: "silent", plugins: [gosfc(), vue()], server: { watch: null, port: 0 } });
+  t.after(() => server.close());
+  const { astroScriptId } = await import("../packages/vite/src/compile.js");
+  const load = (id) => server.pluginContainer.load(id);
+  assert.match((await load(astroScriptId(page, 0))).code, /GosfcSetup/);
+
+  // The script is removed: its block leaves the program.
+  writeFileSync(page, "<p>hi</p>\n");
+  await server.environments.ssr.pluginContainer.load(page);
+  // Restored as it was: loading it again puts the block back.
+  writeFileSync(page, withScript);
+  assert.match((await load(astroScriptId(page, 0))).code, /GosfcSetup/);
+  only('"x"');
+  writeFileSync(path.join(dir, "B.vue"), goComponent("", "3"));
+  const m = await server.moduleGraph.getModuleByUrl("/src/forget/B.vue");
+  if (m) server.moduleGraph.invalidateModule(m);
+  await assert.rejects(server.transformRequest("/src/forget/B.vue"), (e) => /only\.go/.test(e.message));
+});
