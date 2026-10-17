@@ -62,6 +62,8 @@ test("only the names the template uses become bindings", async () => {
   const source = `<template>
   <canvas ref="canvas" :width="w" />
   <MyBadge v-focus :label="label" />
+  <Form.Input />
+  <p>{{ 合計 }}</p>
 </template>
 
 <script setup lang="go">
@@ -72,6 +74,8 @@ w := 300
 label := "x"
 MyBadge := 1
 vFocus := 2
+Form := 3
+合計 := 4
 
 func helper() int { return w * 2 }
 
@@ -84,7 +88,7 @@ canvas { height: v-bind(w); }
 `;
   const file = component("TmpUsed.vue", source);
   const r = await compileSfc(source, file, { root: app });
-  for (const n of ["canvas", "w", "label", "MyBadge", "vFocus"]) assert.match(r.code, new RegExp(`const ${n} = __gosfc\\.binding\\("${n}"\\);`), n);
+  for (const n of ["canvas", "w", "label", "MyBadge", "vFocus", "Form", "合計"]) assert.match(r.code, new RegExp(`const ${n} = __gosfc\\.binding\\("${n}"\\);`), n);
   assert.doesNotMatch(r.code, /binding\("(helper|unused)"\)/);
   const setup = r.modules.find((m) => m.importPath.endsWith("/tmpused_vue"));
   assert.doesNotMatch(setup.code, /"(helper|unused)"/, "the lookup returns a binding the template does not use");

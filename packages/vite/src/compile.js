@@ -290,20 +290,22 @@ function templateNames(descriptor, filename) {
   const r = compileTemplate({ source: t.content, filename, id: "gosfc", compilerOptions: { prefixIdentifiers: true } });
   if (r.errors.length) return null;
   const names = new Set();
-  for (const m of r.code.matchAll(/_ctx\.([A-Za-z_$][\w$]*)/g)) names.add(m[1]);
+  // Go identifiers are Unicode letters, digits and _.
+  const ident = /[\p{L}_$][\p{L}\p{N}_$]*/gu;
+  for (const m of r.code.matchAll(/_ctx\.([\p{L}_$][\p{L}\p{N}_$]*)/gu)) names.add(m[1]);
   const camel = (n) => n.replace(/-(\w)/g, (_, c) => c.toUpperCase());
   const cap = (n) => n.charAt(0).toUpperCase() + n.slice(1);
   for (const m of r.code.matchAll(/_resolve(Component|Directive)\("([^"]+)"/g)) {
     const n = camel(m[2]);
     if (m[1] === "Directive") names.add("v" + cap(n));
-    else names.add(n).add(cap(n));
+    else for (const c of [n, n.split(".")[0]]) names.add(c).add(cap(c)); // <Form.Input> reads Form
   }
   const walk = (node) => {
     for (const p of node.props ?? []) if (p.type === 6 && p.name === "ref" && p.value) names.add(p.value.content);
     for (const c of node.children ?? []) walk(c);
   };
   if (t.ast) walk(t.ast);
-  for (const v of descriptor.cssVars) for (const m of v.matchAll(/[A-Za-z_$][\w$]*/g)) names.add(m[0]);
+  for (const v of descriptor.cssVars) for (const m of v.matchAll(ident)) names.add(m[0]);
   return [...names].sort();
 }
 
