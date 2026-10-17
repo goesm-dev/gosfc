@@ -13,7 +13,7 @@ require github.com/goesm-dev/gosfc v0.0.0-00010101000000-000000000000
 
 require (
 	github.com/evanw/esbuild v0.28.2 // indirect
-	github.com/goesm-dev/goesm v0.0.1-beta.5 // indirect
+	github.com/goesm-dev/goesm v0.0.1-beta.6 // indirect
 	golang.org/x/mod v0.41.0 // indirect
 	golang.org/x/sync v0.23.0 // indirect
 	golang.org/x/sys v0.48.0 // indirect
