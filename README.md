@@ -105,7 +105,7 @@ Components using `lang="ts"` or a plain `<script setup>` keep working alongside 
   </script>
   ```
 * Put methods and generic functions in a Go package.
-* To receive props, declare `type Props struct {...}`; the block then has a `props` variable of that type. Field `Route` is read from the attribute `route` (or the field's json tag name, or its kebab-case form), converted to the field's type (string, bool, integer or float kinds). Props are read once, when the instance is set up, and do not fall through to the root element.
+* To receive props, declare `type Props struct {...}`; the block then has a `props` variable of that type. Field `Route` is read from the attribute `route` (or the field's json tag name, or its kebab-case form), converted to the field's type: strings, bools and numbers, and structs, slices, pointers (`null` is nil) and functions as goesm's ABI converts them. A field's `default:"..."` tag fills a prop the parent leaves out. When the parent passes new props, `props` is replaced and the template reads it again (`{{ props.Title }}`). The fields are declared as Vue props, so other attributes (`class`, `style`, listeners) fall through to the root element as usual.
 
   ```vue
   <script setup lang="go">
@@ -118,6 +118,50 @@ Components using `lang="ts"` or a plain `<script setup>` keep working alongside 
   heading := strings.ToUpper(props.Title)
   </script>
   ```
+
+## Reactivity: the vue package
+
+Go variables are invisible to Vue: the template reads them again only after one of its own Go calls (an event handler). State that changes on its own (a timer, a goroutine, another component) goes in a `vue.Ref` of the package `github.com/goesm-dev/gosfc/vue`:
+
+```vue
+<template>
+  <p>{{ seconds }} s ({{ Label() }})</p>
+  <input v-model="name" />
+  <canvas ref="canvas"></canvas>
+</template>
+
+<script setup lang="go">
+import (
+	"syscall/js"
+	"time"
+
+	"github.com/goesm-dev/gosfc/vue"
+)
+
+seconds := vue.NewRef(0)
+name := vue.NewRef("")
+canvas := vue.NewRef(js.Null())
+emit := vue.Emitter()
+
+func Label() string { return "hello " + name.Get() }
+
+vue.OnMounted(func() {
+	go func() {
+		for range time.Tick(time.Second) {
+			seconds.Set(seconds.Get() + 1)
+		}
+	}()
+})
+vue.Watch(func() int { return seconds.Get() }, func(n int) { emit("tick", n) })
+</script>
+```
+
+* A Ref bound in the template reads as its value and is followed whoever sets it, from any package: Refs can live in a Go package and be shared by components. The Go of all the components (and the packages JavaScript imports with `go:`) is one goesm program, as the packages of a Go binary are, so a package's variables are one set for the whole app. `v-model` and `ref="..."` write it with `Set`.
+* A Go function called from the template is re-run when a Ref it read changes.
+* `vue.NewComputed` derives a cached value; `vue.Watch` and `vue.WatchEffect` run side effects, and also re-run when the component's props change.
+* `vue.OnMounted`, `OnBeforeUnmount`, `OnUnmounted` and `vue.Emitter` belong to the component being set up: call them from the top level of the block. `emit("update:modelValue", v)` with a `ModelValue` prop makes the component work with `v-model`.
+* Outside a goesm build (`go test`), Refs and Computeds hold and compute values, and watchers and hooks never run.
+* gosfc needs goesm v0.0.1-beta.5 or newer: handles inside an `any` have their methods, and several packages build as one program.
 
 ## Go in .astro files
 

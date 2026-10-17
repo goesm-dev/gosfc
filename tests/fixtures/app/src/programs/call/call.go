@@ -1,6 +1,12 @@
-// Package call is shared by two programs that compile it differently: in
-// one, the func values it calls never block and Call is a plain function; in
-// the other, one does and Call is async.
+// Package call is shared by two packages that JavaScript imports with go:.
+// They are entries of one program, so Call is async for both (a func value
+// passed by asyncuser blocks) and Calls counts the calls of both.
 package call
 
-func Call(f func() int) int { return f() }
+// Calls counts the calls of Call.
+var Calls int
+
+func Call(f func() int) int {
+	Calls++
+	return f()
+}
