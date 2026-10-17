@@ -151,3 +151,18 @@ test("a <script lang=go> removed from an .astro file and restored as it was is l
   if (m) server.moduleGraph.invalidateModule(m);
   await assert.rejects(server.transformRequest("/src/forget/B.vue"), (e) => /only\.go/.test(e.message));
 });
+
+test("a .go file added to a package the program reads compiles it again", async (t) => {
+  mkdirSync(path.join(dir, "grow"), { recursive: true });
+  writeFileSync(path.join(dir, "grow", "grow.go"), "package grow\n\nvar X = 1\n\nfunc N() int { return X }\n");
+  writeFileSync(path.join(dir, "G.vue"), goComponent('import "example.com/fixture/src/forget/grow"', "grow.N()"));
+  const server = await createServer({ root, configFile: false, logLevel: "silent", plugins: [gosfc(), vue()], server: { watch: null, port: 0 } });
+  t.after(() => server.close());
+  assert.ok(await server.transformRequest("/src/forget/G.vue"));
+  // A new file of package grow that changes what N returns.
+  const added = path.join(dir, "grow", "init.go");
+  writeFileSync(added, "package grow\n\nfunc init() { X = 2 }\n");
+  const plugin = server.config.plugins.find((p) => p.name === "gosfc");
+  const mods = await plugin.handleHotUpdate({ file: added, modules: [], timestamp: Date.now(), server, read: async () => "" });
+  assert.ok(mods?.some((m) => /forget\/grow/.test(m.id ?? "")), "package grow was not compiled again");
+});

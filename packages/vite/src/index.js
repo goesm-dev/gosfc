@@ -505,8 +505,10 @@ export default function gosfc() {
       const mods = [];
       // The programs reading the file compile again; their changed modules
       // are invalidated (publish) and updated through Vite's HMR.
+      // A new file joins a package whose files the program reads.
+      const dir = path.dirname(ctx.file);
       for (const p of programs.values()) {
-        if (p.outcome && !p.outcome.error && !p.goFiles.includes(ctx.file)) continue;
+        if (p.outcome && !p.outcome.error && !p.goFiles.some((f) => f === ctx.file || path.dirname(f) === dir)) continue;
         p.invalidate();
         await p.compile().catch(() => {});
         for (const id of publish(p)) {
