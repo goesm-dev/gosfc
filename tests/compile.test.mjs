@@ -94,6 +94,18 @@ canvas { height: v-bind(w); }
   assert.doesNotMatch(setup.code, /"(helper|unused)"/, "the lookup returns a binding the template does not use");
 });
 
+test("a template in another file keeps every binding", async () => {
+  const source = `<template src="./TmpExt.html"></template>
+
+<script setup lang="go">
+total := 1
+</script>
+`;
+  const file = component("TmpExt.vue", source);
+  const r = await compileSfc(source, file, { root: app });
+  assert.match(r.code, /const total = __gosfc\.binding\("total"\);/);
+});
+
 test("a Go block that binds nothing still compiles", async () => {
   const source = `<template>
   <p>static</p>
