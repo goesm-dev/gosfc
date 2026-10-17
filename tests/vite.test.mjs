@@ -151,7 +151,7 @@ test("go: imports from JavaScript compile the package in the importer's Go modul
   assert.equal(built.total([[100, 2], [50, 1]]), 250);
 });
 
-test("programs that compile a shared package differently each get their own module", async (t) => {
+test("the Go of a Go module is one program: go: imports share a package and its state", async (t) => {
   const outDir = path.join(root, "dist-programs");
   rmSync(outDir, { recursive: true, force: true });
   t.after(() => rmSync(outDir, { recursive: true, force: true }));
@@ -163,8 +163,11 @@ test("programs that compile a shared package differently each get their own modu
     build: { outDir, ssr: true, rollupOptions: { input: src("programs.js") } },
   });
   const built = await import(pathToFileURL(path.join(outDir, "programs.js")).href);
-  assert.equal(built.runSync(), 1); // a number, not a Promise
+  // asyncuser passes call.Call a func value that blocks, so Call, and Run
+  // of syncuser with it, are async in the program.
+  assert.equal(await built.runSync(), 1);
   assert.equal(await built.runAsync(), 2);
+  assert.equal(built.calls(), 2);
 });
 
 test("dev server: a Go panic's stack trace points at the .vue file", async (t) => {

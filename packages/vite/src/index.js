@@ -31,14 +31,14 @@
 // and each load returns goesm's source map (generated TS -> .vue / .go),
 // which Vite composes into the final JS -> .vue / .go map.
 //
-// Each component (and each JS module importing go:) is its own goesm program,
-// and the code goesm emits for a package depends on the whole program: a
-// function value is async in one program and not in another, for example. So
-// a package's module id carries a hash of its code and of the ids of the
-// packages it imports, which goesm's relative imports are rewritten to.
-// Programs that agree on a package share its module (and the bundler's chunk
-// for it); programs that do not each get their own. The runtime is the same
-// in every program and keeps plain ids.
+// The Go blocks of an app and the packages its JavaScript imports with go: are
+// one goesm program per Go module (program.js), so a package has one module
+// and one state for every component. A package's module id is its import
+// path (gosfc:goesm/<import path>.ts), with the number of its program for the
+// programs after the first in a Vite root that has several Go modules. When a
+// compilation changes a module, its module is invalidated: Vite's HMR takes
+// a .go edit to the components using the package, and a page whose modules
+// a component edit changed besides the component's own package reloads.
 
 import { createHash } from "node:crypto";
 import { existsSync, readFileSync, statSync } from "node:fs";
@@ -48,14 +48,17 @@ import {
   ASTRO_RUNTIME_ID,
   compileAstro,
   compileAstroScript,
-  compilePackage,
   compileSfc,
+  goImports,
   mayHaveGoAstro,
   mayHaveGoSetup,
   parseAstroScriptId,
   placeholderSfc,
   RUNTIME_ID,
+  scanGoModule,
 } from "./compile.js";
+import { findGoModule } from "./gomod.js";
+import { GoProgram } from "./program.js";
 
 const PREFIX = "gosfc:";
 const TREE_PREFIX = PREFIX + "goesm/";
@@ -63,8 +66,6 @@ const GO_PREFIX = TREE_PREFIX;
 const RT_PREFIX = TREE_PREFIX + "@goesm/runtime/";
 const BRIDGE_ID = RUNTIME_ID;
 const GO_IMPORT = /["']go:/;
-// Specifiers of static and dynamic imports and re-exports: from "go:..." and import("go:...").
-const GO_IMPORTS = /\b(?:from|import)\s*\(?\s*(["'])go:([^"'\s]+)\1/g;
 // Relative specifiers in goesm's modules: import / export ... from "./x.ts", import("../y.ts").
 const REL_IMPORTS = /(\b(?:from|import)\s*\(?\s*)"(\.\.?\/[^"]+)"/g;
 const CONVERT_ID = PREFIX + "convert.js";
@@ -88,8 +89,10 @@ export default function gosfc() {
   let server;
   /** virtual id -> generated module */
   const modules = new Map();
-  /** import path + "\0" + importing file -> virtual id of the package's module in that file's program */
-  const entries = new Map();
+  /** Go module directory -> the program of its Go */
+  const programs = new Map();
+  /** program -> import path -> virtual id of the package's module */
+  const programIds = new Map();
   /** .go file -> .vue / .astro files, JS modules importing go: and ids of
    * client scripts of .astro files whose Go code depends on it */
   const goDependents = new Map();
@@ -99,30 +102,109 @@ export default function gosfc() {
 
   const setModule = (id, code, map) => modules.set(id, { code, map });
 
-  // Adds the modules of one goesm program, compiled for importer, under
-  // content-addressed ids (see the top of this file).
-  function addProgram(result, importer) {
-    const byPath = new Map(result.modules.map((m) => [m.importPath, m]));
-    /** import path -> virtual id */
-    const ids = new Map();
-    const idOf = (importPath, seen = new Set()) => {
-      if (ids.has(importPath)) return ids.get(importPath);
-      if (seen.has(importPath)) throw new Error(`gosfc: import cycle through ${importPath}`);
-      seen.add(importPath);
-      const m = byPath.get(importPath);
+  /**
+   * The program of the Go module of file, which starts as the Go of the app
+   * the scan finds. Null when the file is in no Go module.
+   * @returns {GoProgram | null}
+   */
+  function programFor(file) {
+    const mod = findGoModule(path.dirname(file));
+    if (!mod) return null;
+    let p = programs.get(mod.dir);
+    if (!p) {
+      const outDirs = [path.resolve(config.root, config.build.outDir)];
+      p = new GoProgram(mod, () => scanGoModule(config.root, mod, outDirs));
+      programs.set(mod.dir, p);
+      programIds.set(p, new Map());
+    }
+    return p;
+  }
+  const idOf = (program, importPath) => programIds.get(program)?.get(importPath);
+
+  // Adds the modules of a program's last compilation under their ids (see
+  // the top of this file) and returns the ids of the modules that changed.
+  function publish(program) {
+    const o = program.outcome;
+    /** @type {Set<string>} */
+    const changed = new Set();
+    if (!o || o.error) return changed;
+    const n = [...programs.values()].indexOf(program);
+    const suffix = n > 0 ? "." + n : "";
+    const ids = programIds.get(program);
+    for (const m of o.modules) ids.set(m.importPath, GO_PREFIX + m.importPath + suffix + ".ts");
+    for (const m of o.modules) {
       const code = m.code.replace(REL_IMPORTS, (all, lead, spec) => {
-        const target = path.posix.join(path.posix.dirname(importPath), spec).replace(/\.ts$/, "");
-        const id = byPath.has(target) ? idOf(target, seen) : TREE_PREFIX + target + ".ts";
-        return lead + JSON.stringify(id);
+        const target = path.posix.join(path.posix.dirname(m.importPath), spec).replace(/\.ts$/, "");
+        return lead + JSON.stringify(ids.get(target) ?? TREE_PREFIX + target + ".ts");
       });
-      const hash = createHash("sha256").update(code).digest("hex").slice(0, 12);
-      const id = GO_PREFIX + importPath + "." + hash + ".ts";
+      const id = ids.get(m.importPath);
+      if (modules.get(id)?.code !== code) changed.add(id);
       setModule(id, code, m.map);
-      ids.set(importPath, id);
-      return id;
-    };
-    for (const m of result.modules) entries.set(m.importPath + "\0" + importer, idOf(m.importPath));
-    for (const f of result.runtime) setModule(RT_PREFIX + f.file, f.code, null);
+    }
+    for (const f of o.runtime) setModule(RT_PREFIX + f.file, f.code, null);
+    if (server) {
+      const t = Date.now();
+      for (const id of changed) for (const mod of graphModules(id)) mod.graph.invalidateModule(mod.node, new Set(), t, true);
+    }
+    return changed;
+  }
+
+  /** The nodes of a module id in the module graphs of the dev server's environments. */
+  function graphModules(id) {
+    const out = [];
+    for (const env of Object.values(server?.environments ?? {})) {
+      const node = env.moduleGraph?.getModuleById(id);
+      if (node) out.push({ graph: env.moduleGraph, node });
+    }
+    return out;
+  }
+
+  /**
+   * Lowers a Go block with the rest of its program (compile.js's lower). A
+   * compilation that changes modules the page already runs, other than the
+   * block's own, reloads the page: those modules hold the state of the old
+   * program.
+   */
+  async function lower(block) {
+    const p = programFor(block.filename);
+    try {
+      return await p.lowerBlock(block);
+    } finally {
+      const own = idOf(p, block.importPath);
+      const changed = [...publish(p)].filter((id) => id !== own);
+      if (server && changed.some((id) => graphModules(id).length)) server.ws.send({ type: "full-reload" });
+    }
+  }
+  /**
+   * Leaves the blocks file no longer has out of its program (forget), or
+   * the go: imports of a JavaScript module that no longer imports them
+   * (imports), and compiles the program again without them, as a .go edit
+   * does: what left no longer makes shared functions async or keeps methods.
+   */
+  async function forget(file, keep = new Set(), imports = false) {
+    const mod = findGoModule(path.dirname(file));
+    const p = mod && programs.get(mod.dir);
+    if (!p || !(imports ? p.forgetImports(file, keep) : p.forget(file, keep))) return;
+    p.invalidate();
+    await p.compile().catch(() => {});
+    const changed = publish(p);
+    if (server && [...changed].some((id) => graphModules(id).length)) server.ws.send({ type: "full-reload" });
+  }
+  // The go: imports of the modules an .astro file becomes: its component,
+  // and its client scripts (file?astro&type=script&index=<n>&lang.ts).
+  const astroImports = new Map();
+  async function astroModuleImports(ctx, file, id, code, imports) {
+    // In the browser the component is a stub: its server module says what
+    // it imports and which scripts it renders.
+    if (id === file && ctx.environment?.config?.consumer === "client") return;
+    let mods = astroImports.get(file);
+    if (!mods) astroImports.set(file, (mods = new Map()));
+    mods.set(id, imports);
+    if (id === file) {
+      // The scripts the component no longer renders.
+      for (const sub of mods.keys()) if (sub !== file && !code.includes(sub.slice(file.length))) mods.delete(sub);
+    }
+    await forget(file, new Set([...mods.values()].flat()), true);
   }
   const addGoDependent = (goFile, id) => {
     if (!goDependents.has(goFile)) goDependents.set(goFile, new Set());
@@ -135,8 +217,10 @@ export default function gosfc() {
   async function compile(code, id) {
     const c = compiled.get(id);
     if (c && c.code === code && (!c.result || c.stamp === goStamp(c.result.goFiles))) return c.result;
-    const result = await compileSfc(code, id, { root: config.root });
+    const blocks = new Set();
+    const result = await compileSfc(code, id, { root: config.root, lower: (b) => (blocks.add(b.importPath), lower(b)) });
     compiled.set(id, { code, result, stamp: result ? goStamp(result.goFiles) : "" });
+    await forget(id, blocks);
     return result;
   }
 
@@ -149,20 +233,26 @@ export default function gosfc() {
    * @param {() => Promise<T>} fn
    * @returns {Promise<T>}
    */
-  async function cached(key, code, fn) {
+  // A compilation of an .astro file is reused while the file and its .go
+  // files are unchanged and its blocks are still in the program (a block
+  // removed and then restored as it was has to be lowered again).
+  async function cached(key, file, code, fn) {
     const c = astroCompiled.get(key);
-    if (c && c.code === code && (!c.result || c.stamp === goStamp(c.result.goFiles))) return c.result;
+    const live = (r) => (r.blocks ?? []).every((b) => programFor(file)?.blocks.has(b));
+    if (c && c.code === code && (!c.result || (c.stamp === goStamp(c.result.goFiles) && live(c.result)))) return c.result;
     const result = await fn();
     astroCompiled.set(key, { code, result, stamp: result ? goStamp(result.goFiles) : "" });
     return result;
   }
-  // register for compileAstro: the importing module is the .astro file (or
-  // the client script's virtual id).
-  const register = (importer) => (res, importPath) => {
-    addProgram(res, importer);
-    return entries.get(importPath + "\0" + importer);
-  };
-  const compileAstroFile = (code, id) => cached(id, code, () => compileAstro(code, id, { root: config.root, register: register(id) }));
+  // register for compileAstro: the id of a block's package in the program of
+  // the .astro file.
+  const register = (file) => (importPath) => idOf(programFor(file), importPath);
+  async function compileAstroFile(code, id) {
+    const result = await cached(id, id, code, () => compileAstro(code, id, { root: config.root, register: register(id), lower }));
+    // The blocks removed from the file leave the program.
+    await forget(id, new Set(result?.blocks ?? []));
+    return result;
+  }
 
   /** Reports a GosfcError at its .vue / .astro position. */
   function fail(ctx, e) {
@@ -174,13 +264,24 @@ export default function gosfc() {
 
   /** import path + "\0" + importer -> stamp of the .go files it was compiled from */
   const jsCompiled = new Map();
+  // Compiles a Go package imported from JavaScript or TypeScript (`import {
+  // F } from "go:<import path>"` in a .js, .ts or .astro module) rather than
+  // from a Go block, in the program of the importing file's Go module.
   async function compileImport(importPath, importer, ctx) {
     const key = importPath + "\0" + importer;
     const c = jsCompiled.get(key);
-    if (c && c.stamp === goStamp(c.goFiles)) return;
-    const result = await compilePackage(importPath, importer);
+    const p = programFor(importer);
+    // Reused while the program still counts the import (a module that
+    // dropped it and imports it again registers it again).
+    if (c && c.stamp === goStamp(c.goFiles) && p?.importers.get(importPath)?.has(path.resolve(importer))) return;
+    if (!p) throw new Error(`gosfc: no go.mod found for ${importer}, which imports go:${importPath}`);
+    let result;
+    try {
+      result = await p.lowerImport(importPath, importer);
+    } finally {
+      publish(p);
+    }
     jsCompiled.set(key, { goFiles: result.goFiles, stamp: goStamp(result.goFiles) });
-    addProgram(result, importer);
     for (const f of result.goFiles) {
       addGoDependent(f, importer);
       ctx.addWatchFile?.(f);
@@ -237,13 +338,14 @@ export default function gosfc() {
         if (file && !file.startsWith(PREFIX) && !file.startsWith("\0") && !file.endsWith(".vue")) {
           await compileImport(importPath, file, this);
         }
-        const id = entries.get(importPath + "\0" + file);
+        const p = file && programFor(file);
+        const id = p && idOf(p, importPath);
         if (!id) {
           this.error(`gosfc: Go package ${importPath} was not compiled; import it from <script setup lang="go"> or from a module inside a Go module`);
         }
         return id;
       }
-      // goesm's imports between packages, rewritten by addProgram.
+      // goesm's imports between packages, rewritten by publish.
       if (source.startsWith(TREE_PREFIX) && modules.has(source)) return source;
       // A file a //goesm:import directive imports (goesm.js made it absolute).
       if (importer?.startsWith(TREE_PREFIX) && path.isAbsolute(source)) return source;
@@ -266,7 +368,7 @@ export default function gosfc() {
         }
         let result;
         try {
-          result = await cached(id, code, () => compileAstroScript(script.file, script.index, { root: config.root, code, register: register(id) }));
+          result = await cached(id, script.file, code, () => compileAstroScript(script.file, script.index, { root: config.root, code, register: register(script.file), lower }));
         } catch (e) {
           fail(this, e);
         }
@@ -287,7 +389,10 @@ export default function gosfc() {
         } catch {
           return null;
         }
-        if (!mayHaveGoAstro(code)) return null;
+        if (!mayHaveGoAstro(code)) {
+          await forget(id);
+          return null;
+        }
         let result;
         try {
           result = await compileAstroFile(code, id);
@@ -309,15 +414,24 @@ export default function gosfc() {
 
     async transform(code, id) {
       const file = id.split("?")[0];
-      if (!file.endsWith(".vue") && !id.startsWith(PREFIX) && !id.startsWith("\0") && GO_IMPORT.test(code)) {
+      if (!file.endsWith(".vue") && !id.startsWith(PREFIX) && !id.startsWith("\0")) {
         // A JS / TS / Astro module importing Go packages: compile them now,
         // so that the .go files they come from are watched on behalf of this
-        // module (an edit then reloads it).
-        for (const m of code.matchAll(GO_IMPORTS)) await compileImport(m[2], file, this);
-        return null;
+        // module (an edit then reloads it). The packages a module no longer
+        // imports leave the program.
+        const imports = GO_IMPORT.test(code) ? goImports(code) : [];
+        for (const i of imports) await compileImport(i, file, this);
+        if (file.endsWith(".astro")) await astroModuleImports(this, file, id, code, imports);
+        else if (id === file) await forget(file, new Set(imports), true);
+        if (imports.length) return null;
       }
       if (!id.endsWith(".vue") || id.includes("?") || id.includes("\0")) return null;
-      if (!mayHaveGoSetup(code)) return null;
+      if (!mayHaveGoSetup(code)) {
+        // A component whose Go block was removed.
+        compiled.delete(id);
+        await forget(id);
+        return null;
+      }
       let result;
       try {
         result = await compile(code, id);
@@ -326,7 +440,6 @@ export default function gosfc() {
       }
       if (!result) return null;
 
-      addProgram(result, id);
       for (const f of result.goFiles) {
         addGoDependent(f, id);
         // Rebuild (vite build --watch) and invalidate (dev) on .go changes.
@@ -342,13 +455,24 @@ export default function gosfc() {
     // template-only edit re-renders, a Go edit reloads) instead of failing on
     // Go source.
     //
-    // A change to a .go file of a package used by a component re-runs the
-    // components that depend on it, which plugin-vue then reloads.
+    // A change to a .go file compiles the program again; the modules that
+    // changed go through Vite's HMR to the components importing them, which
+    // plugin-vue reloads.
     //
     // Astro's HMR compares the old and new source of an .astro file (to update
     // styles only when only styles changed); it is shown the rewritten source
     // too. A .go edit invalidates the .astro files and client scripts using
     // the package.
+    // A deleted file's Go blocks and go: imports leave the program.
+    async watchChange(id, change) {
+      if (change.event !== "delete") return;
+      compiled.delete(id);
+      astroCompiled.delete(id);
+      astroImports.delete(id);
+      await forget(id);
+      await forget(id, new Set(), true);
+    },
+
     async handleHotUpdate(ctx) {
       if (ctx.file.endsWith(".astro")) {
         const read = ctx.read;
@@ -378,10 +502,21 @@ export default function gosfc() {
         return;
       }
       if (!ctx.file.endsWith(".go")) return;
-      const vues = goDependents.get(ctx.file);
-      if (!vues) return;
       const mods = [];
-      for (const v of vues) {
+      // The programs reading the file compile again; their changed modules
+      // are invalidated (publish) and updated through Vite's HMR.
+      // A new file joins a package whose files the program reads.
+      const dir = path.dirname(ctx.file);
+      for (const p of programs.values()) {
+        if (p.outcome && !p.outcome.error && !p.goFiles.some((f) => f === ctx.file || path.dirname(f) === dir)) continue;
+        p.invalidate();
+        await p.compile().catch(() => {});
+        for (const id of publish(p)) {
+          const mod = server.moduleGraph.getModuleById(id);
+          if (mod) mods.push(mod);
+        }
+      }
+      for (const v of goDependents.get(ctx.file) ?? []) {
         compiled.delete(v);
         astroCompiled.delete(v);
         const byId = server.moduleGraph.getModuleById(v);

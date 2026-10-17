@@ -15,9 +15,10 @@ import { fromGo, readProps } from "gosfc:convert.js";
  * @param {(props?: any) => any} setup
  * @param {(() => Record<string, unknown>) | null} props zero value of the block's Props
  * @param {Record<string, unknown>} astroProps Astro.props
+ * @param {Record<string, string>} [defaults] the `default` tags of the Props fields
  * @returns {Promise<(name: string) => any>}
  */
-export async function runGo(setup, props, astroProps) {
-  const lookup = await (props ? setup(readProps(props(), astroProps ?? {})) : setup());
+export async function runGo(setup, props, astroProps, defaults) {
+  const lookup = await (props ? setup(readProps(props(), astroProps ?? {}, defaults)) : setup());
   return (name) => fromGo(lookup(name));
 }
