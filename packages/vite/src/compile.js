@@ -239,7 +239,7 @@ export async function compileAstro(code, filename, opts) {
  * @param {string} filename
  * @param {number} index
  * @param {{ root: string, register?: Register, lower?: Lower, code?: string }} opts
- * @returns {Promise<{ code: string, modules: GoModuleOutput[], runtime: RuntimeFile[], goFiles: string[] }>}
+ * @returns {Promise<{ code: string, modules: GoModuleOutput[], runtime: RuntimeFile[], goFiles: string[], blocks: string[] }>}
  */
 export async function compileAstroScript(filename, index, opts) {
   const code = opts.code ?? readFileSync(filename, "utf8");
@@ -253,6 +253,7 @@ export async function compileAstroScript(filename, index, opts) {
     modules: res.modules,
     runtime: res.runtime,
     goFiles,
+    blocks: [importPath],
   };
 }
 

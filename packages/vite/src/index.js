@@ -233,9 +233,13 @@ export default function gosfc() {
    * @param {() => Promise<T>} fn
    * @returns {Promise<T>}
    */
-  async function cached(key, code, fn) {
+  // A compilation of an .astro file is reused while the file and its .go
+  // files are unchanged and its blocks are still in the program (a block
+  // removed and then restored as it was has to be lowered again).
+  async function cached(key, file, code, fn) {
     const c = astroCompiled.get(key);
-    if (c && c.code === code && (!c.result || c.stamp === goStamp(c.result.goFiles))) return c.result;
+    const live = (r) => (r.blocks ?? []).every((b) => programFor(file)?.blocks.has(b));
+    if (c && c.code === code && (!c.result || (c.stamp === goStamp(c.result.goFiles) && live(c.result)))) return c.result;
     const result = await fn();
     astroCompiled.set(key, { code, result, stamp: result ? goStamp(result.goFiles) : "" });
     return result;
@@ -244,7 +248,7 @@ export default function gosfc() {
   // the .astro file.
   const register = (file) => (importPath) => idOf(programFor(file), importPath);
   async function compileAstroFile(code, id) {
-    const result = await cached(id, code, () => compileAstro(code, id, { root: config.root, register: register(id), lower }));
+    const result = await cached(id, id, code, () => compileAstro(code, id, { root: config.root, register: register(id), lower }));
     // The blocks removed from the file leave the program.
     await forget(id, new Set(result?.blocks ?? []));
     return result;
@@ -364,7 +368,7 @@ export default function gosfc() {
         }
         let result;
         try {
-          result = await cached(id, code, () => compileAstroScript(script.file, script.index, { root: config.root, code, register: register(script.file), lower }));
+          result = await cached(id, script.file, code, () => compileAstroScript(script.file, script.index, { root: config.root, code, register: register(script.file), lower }));
         } catch (e) {
           fail(this, e);
         }
