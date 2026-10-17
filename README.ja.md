@@ -159,7 +159,7 @@ vue.Watch(func() int { return seconds.Get() }, func(n int) { emit("tick", n) })
 * `vue.NewComputed` はキャッシュされる派生値を作ります。`vue.Watch` と `vue.WatchEffect` は副作用を実行し、コンポーネントの props が変わったときにも再実行されます。
 * `vue.OnMounted`、`OnBeforeUnmount`、`OnUnmounted` と `vue.Emitter` は setup 中のコンポーネントに結び付くので、ブロックのトップレベルで呼びます。`ModelValue` の props と `emit("update:modelValue", v)` で、コンポーネントが `v-model` に対応します。
 * goesm のビルド以外（`go test`）では、Ref と Computed は値を保持・計算し、ウォッチャーとフックは実行されません。
-* gosfc には goesm v0.0.1-beta.5 以降が必要です。`any` に入ったハンドルがメソッドを持ち、複数のパッケージを 1 つのプログラムとしてビルドできる版です。
+* gosfc には goesm v0.0.1-beta.6 以降が必要です。`any` に入ったハンドルがメソッドを持ち、複数のパッケージを 1 つのプログラムとしてビルドでき、アプリのほかの関数値がブロックしても、コンポーネントの関数変数 (`update := func() {...}`) で setup が async にならない版です。
 
 ## .astro ファイルで Go を使う
 
