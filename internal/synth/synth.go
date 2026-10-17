@@ -52,6 +52,7 @@ import (
 	"go/scanner"
 	"go/token"
 	"reflect"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -91,6 +92,10 @@ type Input struct {
 	// the Go frontmatter of an .astro file. They are left out of the Go file
 	// and reported in Output.JSImports.
 	JSImports bool `json:"jsImports"`
+	// Used, when not nil, are the names the template may reference. The
+	// lookup function returns only those bindings, so that the code that only
+	// the others reach can be dropped; nil returns every binding.
+	Used []string `json:"used"`
 }
 
 // JSImport is `import Name "path"` of a JavaScript module: a default import,
@@ -404,10 +409,20 @@ func Build(in Input) Output {
 	b.WriteString(hoisted.String())
 	b.WriteString(body.String())
 	tag(&b)
-	b.WriteString("return func(gosfcBinding string) any {\nswitch gosfcBinding {\n")
 	names := append([]Binding(nil), out.Bindings...)
 	sort.Slice(names, func(i, j int) bool { return names[i].Name < names[j].Name })
+	var returned []Binding
 	for _, bd := range names {
+		if in.Used == nil || slices.Contains(in.Used, bd.Name) {
+			returned = append(returned, bd)
+		} else if bd.Kind != "const" {
+			// A variable the template does not read is still declared
+			// and not necessarily used by the block.
+			fmt.Fprintf(&b, "_ = %s\n", bd.Name)
+		}
+	}
+	b.WriteString("return func(gosfcBinding string) any {\nswitch gosfcBinding {\n")
+	for _, bd := range returned {
 		fmt.Fprintf(&b, "case %s:\nreturn %s\n", strconv.Quote(bd.Name), bd.Name)
 	}
 	if out.Props {

@@ -21,7 +21,7 @@
 //                           a module that runs the lowered block in the browser
 //                           (compileAstroScript)
 
-import { parse } from "@vue/compiler-sfc";
+import { compileTemplate, parse } from "@vue/compiler-sfc";
 import { createHash } from "node:crypto";
 import { readdirSync, readFileSync } from "node:fs";
 import MagicString from "magic-string";
@@ -95,7 +95,8 @@ export async function compileSfc(code, filename, opts) {
   }
 
   const tagOffset = code.lastIndexOf("<script", block.loc.start.offset);
-  const { importPath, synth, res, goFiles } = await compileGoBlock({ ...vueBlock(code, filename, block, opts.root), lower: opts.lower });
+  const vb = vueBlock(code, filename, descriptor, opts.root);
+  const { importPath, synth, res, goFiles } = await compileGoBlock({ ...vb, lower: opts.lower });
 
   const s = new MagicString(code);
   // <script setup lang="go"> -> <script setup lang="ts">. Vue requires <script>
@@ -132,7 +133,8 @@ export async function compileSfc(code, filename, opts) {
         `import { useGo as __gosfc_useGo } from ${JSON.stringify(RUNTIME_ID)};`,
         `const __gosfc = __gosfc_useGo(__gosfc_setup, ${version});`,
       ];
-  glue.push(...(synth.bindings ?? []).map((b) => `const ${b.name} = __gosfc.binding(${JSON.stringify(b.name)});`));
+  const bindings = (synth.bindings ?? []).filter((b) => !vb.used || vb.used.includes(b.name));
+  glue.push(...bindings.map((b) => `const ${b.name} = __gosfc.binding(${JSON.stringify(b.name)});`));
   // Keep the line count so positions after the block do not move.
   const lines = block.content.split("\n").length;
   while (glue.length < lines) glue.push("");
@@ -258,7 +260,8 @@ export async function compileAstroScript(filename, index, opts) {
 }
 
 /** The Go block of a .vue file, for compileGoBlock. */
-function vueBlock(code, filename, block, root) {
+function vueBlock(code, filename, descriptor, root) {
+  const block = descriptor.scriptSetup;
   return {
     code,
     filename,
@@ -267,7 +270,41 @@ function vueBlock(code, filename, block, root) {
     tagOffset: code.lastIndexOf("<script", block.loc.start.offset),
     pkgName: packageName(filename),
     root,
+    used: templateNames(descriptor, filename),
   };
+}
+
+/**
+ * Returns the names the template and the style's v-bind() may reference,
+ * a superset of the bindings they read, or null when they cannot be told
+ * (no template, or one in another language or with errors): the free
+ * identifiers of the compiled template, the components and directives it
+ * resolves by name, and the static ref="..." names.
+ * @param {import("@vue/compiler-sfc").SFCDescriptor} descriptor
+ * @param {string} filename
+ * @returns {string[] | null}
+ */
+function templateNames(descriptor, filename) {
+  const t = descriptor.template;
+  if (!t || (t.lang && t.lang !== "html")) return null;
+  const r = compileTemplate({ source: t.content, filename, id: "gosfc", compilerOptions: { prefixIdentifiers: true } });
+  if (r.errors.length) return null;
+  const names = new Set();
+  for (const m of r.code.matchAll(/_ctx\.([A-Za-z_$][\w$]*)/g)) names.add(m[1]);
+  const camel = (n) => n.replace(/-(\w)/g, (_, c) => c.toUpperCase());
+  const cap = (n) => n.charAt(0).toUpperCase() + n.slice(1);
+  for (const m of r.code.matchAll(/_resolve(Component|Directive)\("([^"]+)"/g)) {
+    const n = camel(m[2]);
+    if (m[1] === "Directive") names.add("v" + cap(n));
+    else names.add(n).add(cap(n));
+  }
+  const walk = (node) => {
+    for (const p of node.props ?? []) if (p.type === 6 && p.name === "ref" && p.value) names.add(p.value.content);
+    for (const c of node.children ?? []) walk(c);
+  };
+  if (t.ast) walk(t.ast);
+  for (const v of descriptor.cssVars) for (const m of v.matchAll(/[A-Za-z_$][\w$]*/g)) names.add(m[0]);
+  return [...names].sort();
 }
 
 /** The Go frontmatter of an .astro file, for compileGoBlock. */
@@ -377,6 +414,7 @@ function goScripts(code, from) {
  *   block?: string,         // how the block is written, for messages
  *   jsImports?: boolean,    // imports of JavaScript modules are allowed
  *   bindings?: boolean,     // false: the bindings are not used (a client script)
+ *   used?: string[] | null, // the names the template may reference (null: any)
  * }} BlockInput
  */
 
@@ -422,6 +460,7 @@ export async function synthBlock(b) {
       tagColumn: tagPos.column,
       block: blockName,
       jsImports: !!b.jsImports,
+      used: b.used ?? null,
     }),
   });
   if (synthRes.code !== 0) throw new Error(`gosfc synth failed:\n${synthRes.stderr}`);
@@ -530,7 +569,7 @@ export async function scanGoModule(root, mod, outDirs) {
       if (file.endsWith(".vue")) {
         if (!mayHaveGoSetup(code)) continue;
         const { descriptor, errors } = parse(code, { filename: file, sourceMap: false });
-        if (!errors.length && descriptor.scriptSetup?.lang === "go") inputs.push(vueBlock(code, file, descriptor.scriptSetup, root));
+        if (!errors.length && descriptor.scriptSetup?.lang === "go") inputs.push(vueBlock(code, file, descriptor, root));
         continue;
       }
       if (file.endsWith(".astro") && mayHaveGoAstro(code)) {
