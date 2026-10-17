@@ -49,7 +49,7 @@ test("production build: source maps lead from the bundle back to .vue and .go", 
   const code = readFileSync(path.join(assets, js), "utf8");
   const map = new TraceMap(readFileSync(path.join(assets, js + ".map"), "utf8"));
 
-  const call = originalPositionFor(map, find(code, "= Total(items)"));
+  const call = originalPositionFor(map, find(code, "= Total(")); // items is inlined once only Total reads it
   assert.ok(call.source.endsWith("src/Summary.vue"), call.source);
   assert.equal(call.line, 17); // total := cart.Total(items)
 
