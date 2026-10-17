@@ -153,6 +153,8 @@ test("a <script lang=go> removed from an .astro file and restored as it was is l
 });
 
 test("a .go file added to a package the program reads compiles it again", async (t) => {
+  // The earlier tests leave package only broken, and script.astro imports it.
+  rmSync(path.join(dir, "script.astro"), { force: true });
   mkdirSync(path.join(dir, "grow"), { recursive: true });
   writeFileSync(path.join(dir, "grow", "grow.go"), "package grow\n\nvar X = 1\n\nfunc N() int { return X }\n");
   writeFileSync(path.join(dir, "G.vue"), goComponent('import "example.com/fixture/src/forget/grow"', "grow.N()"));
