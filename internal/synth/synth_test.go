@@ -80,6 +80,27 @@ _ = a + b + c
 	}
 }
 
+// With Used, the lookup returns only the bindings the template uses, and the
+// file still type-checks although nothing else reads the others.
+func TestUsedBindings(t *testing.T) {
+	src := `
+total := 0
+const limit = 10
+
+func Increment() { total++ }
+`
+	out := Build(Input{File: vue, Package: "counter_vue", Source: src, Line: 10, Column: 1, TagLine: 9, TagCol: 1, Used: []string{"Increment"}})
+	if len(out.Bindings) != 3 {
+		t.Errorf("bindings = %v, want all three", out.Bindings)
+	}
+	if !strings.Contains(out.Go, `case "Increment":`) || strings.Contains(out.Go, `case "total":`) || strings.Contains(out.Go, `case "limit":`) {
+		t.Errorf("lookup does not return only Increment:\n%s", out.Go)
+	}
+	if errs := check(t, out); len(errs) != 0 {
+		t.Errorf("type errors: %v\n%s", errs, out.Go)
+	}
+}
+
 // Errors in user code are reported at .vue positions, never at positions in
 // the synthetic file.
 func TestErrorsPointAtVue(t *testing.T) {
