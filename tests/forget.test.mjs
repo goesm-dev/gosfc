@@ -64,3 +64,63 @@ test("a removed Go block leaves the program", async (t) => {
   assert.ok(await transform("Foo-Bar.vue"));
   await assert.rejects(transform("foo_bar.vue"), (e) => /foo_bar\.vue and Foo-Bar\.vue would both be Go package foo_bar_vue/.test(e.message));
 });
+
+test("go: imports removed from an .astro file leave the program", async (t) => {
+  mkdirSync(path.join(dir, "only"), { recursive: true });
+  const only = (body) => writeFileSync(path.join(dir, "only", "only.go"), `package only\n\nfunc N() int { return ${body} }\n`);
+  only("1");
+  writeFileSync(path.join(dir, "B.vue"), goComponent("", "2"));
+  const page = path.join(dir, "page.astro");
+  writeFileSync(page, "<p>no Go</p>\n");
+  const script = "?astro&type=script&index=0&lang.ts";
+  const imp = 'import { N } from "go:example.com/fixture/src/forget/only";\nN();\n';
+  // The modules Astro compiles page.astro to, as the plugin sees them: the
+  // component, which renders its script by id, and the script.
+  const out = new Map();
+  const astro = {
+    name: "astro-modules",
+    load(id) {
+      if (out.has(id)) return out.get(id);
+    },
+  };
+  const server = await createServer({ root, configFile: false, logLevel: "silent", plugins: [gosfc(), astro, vue()], server: { watch: null, port: 0 } });
+  t.after(() => server.close());
+  const transform = async (url, ssr) => {
+    const m = await server.moduleGraph.getModuleByUrl(url, ssr);
+    if (m) server.moduleGraph.invalidateModule(m);
+    return server.transformRequest(url, { ssr });
+  };
+  const component = () => transform("/src/forget/page.astro", true);
+  const runScript = () => transform("/src/forget/page.astro" + script, false);
+  const goStillCompiles = async (n) => {
+    only('"x"');
+    writeFileSync(path.join(dir, "B.vue"), goComponent("", String(n)));
+    assert.match((await transform("/src/forget/B.vue")).code, /gosfc/);
+    only("1");
+  };
+  assert.ok(await transform("/src/forget/B.vue"));
+
+  // A frontmatter import, removed.
+  out.set(page, imp + "export default 1;\n");
+  await component();
+  out.set(page, "export default 1;\n");
+  await component();
+  await goStillCompiles(3);
+
+  // A script's import; the script is removed, and its module is not
+  // transformed again.
+  out.set(page, `export default ${JSON.stringify(page + script)};\n`);
+  out.set(page + script, imp);
+  await component();
+  await runScript();
+  // Still imported while the component renders the script.
+  out.set(page, `export default ${JSON.stringify(page + script)}; // edited\n`);
+  await component();
+  only('"x"');
+  writeFileSync(path.join(dir, "B.vue"), goComponent("", "4"));
+  await assert.rejects(transform("/src/forget/B.vue"));
+  only("1");
+  out.set(page, "export default 2;\n");
+  await component();
+  await goStillCompiles(5);
+});

@@ -190,6 +190,22 @@ export default function gosfc() {
     const changed = publish(p);
     if (server && [...changed].some((id) => graphModules(id).length)) server.ws.send({ type: "full-reload" });
   }
+  // The go: imports of the modules an .astro file becomes: its component,
+  // and its client scripts (file?astro&type=script&index=<n>&lang.ts).
+  const astroImports = new Map();
+  async function astroModuleImports(ctx, file, id, code, imports) {
+    // In the browser the component is a stub: its server module says what
+    // it imports and which scripts it renders.
+    if (id === file && ctx.environment?.config?.consumer === "client") return;
+    let mods = astroImports.get(file);
+    if (!mods) astroImports.set(file, (mods = new Map()));
+    mods.set(id, imports);
+    if (id === file) {
+      // The scripts the component no longer renders.
+      for (const sub of mods.keys()) if (sub !== file && !code.includes(sub.slice(file.length))) mods.delete(sub);
+    }
+    await forget(file, new Set([...mods.values()].flat()), true);
+  }
   const addGoDependent = (goFile, id) => {
     if (!goDependents.has(goFile)) goDependents.set(goFile, new Set());
     goDependents.get(goFile).add(id);
@@ -397,12 +413,12 @@ export default function gosfc() {
       if (!file.endsWith(".vue") && !id.startsWith(PREFIX) && !id.startsWith("\0")) {
         // A JS / TS / Astro module importing Go packages: compile them now,
         // so that the .go files they come from are watched on behalf of this
-        // module (an edit then reloads it). The packages a JavaScript or
-        // TypeScript module no longer imports leave the program (an .astro
-        // file's imports are spread over several modules).
+        // module (an edit then reloads it). The packages a module no longer
+        // imports leave the program.
         const imports = GO_IMPORT.test(code) ? goImports(code) : [];
         for (const i of imports) await compileImport(i, file, this);
-        if (id === file && !file.endsWith(".astro")) await forget(file, new Set(imports), true);
+        if (file.endsWith(".astro")) await astroModuleImports(this, file, id, code, imports);
+        else if (id === file) await forget(file, new Set(imports), true);
         if (imports.length) return null;
       }
       if (!id.endsWith(".vue") || id.includes("?") || id.includes("\0")) return null;
@@ -448,6 +464,7 @@ export default function gosfc() {
       if (change.event !== "delete") return;
       compiled.delete(id);
       astroCompiled.delete(id);
+      astroImports.delete(id);
       await forget(id);
       await forget(id, new Set(), true);
     },
