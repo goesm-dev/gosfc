@@ -8,6 +8,8 @@
 //   goesm emit-ts -overlay <overlay.json> -o <dir> <package pattern>...
 //     -> <dir>/<import path>.ts (+ .ts.map)     one module per Go package
 //     -> <dir>/@goesm/runtime/*.ts               the goesm runtime
+//     -> <dir>/<import path>.d.ts                the exports of an entry (-dts, goesm
+//                                                 after v0.0.1-beta.7): the types of go: imports
 //     modules import each other and the runtime with relative "./x.ts" specifiers
 //     -> exit 1 and "<file>:<line>:<col>: <message> [<layer>]" on stderr
 //
@@ -21,7 +23,7 @@ import path from "node:path";
 import { run } from "./gomod.js";
 
 /**
- * @typedef {{ importPath: string, code: string, map: any }} GoModuleOutput
+ * @typedef {{ importPath: string, code: string, map: any, dts?: string }} GoModuleOutput
  * @typedef {{ file: string, code: string }} RuntimeFile
  * @typedef {{ file?: string, line?: number, column?: number, message: string, layer?: string }} GoDiagnostic
  * @typedef {{ ok: true, modules: GoModuleOutput[], runtime: RuntimeFile[] }
@@ -51,9 +53,10 @@ export async function emitTS(opts) {
     const overlayFile = path.join(tmp, "overlay.json");
     await writeFile(overlayFile, JSON.stringify({ Replace: replace }));
     const outDir = path.join(tmp, "out");
-    const r = await run(opts.goesm, ["emit-ts", "-overlay", overlayFile, "-o", outDir, ...opts.patterns], {
-      cwd: opts.moduleDir,
-    });
+    const emit = (flags) => run(opts.goesm, ["emit-ts", ...flags, "-overlay", overlayFile, "-o", outDir, ...opts.patterns], { cwd: opts.moduleDir });
+    let r = await emit(["-dts"]);
+    // goesm v0.0.1-beta.7 and older write no declaration files.
+    if (r.code !== 0 && /flag provided but not defined: -dts/.test(r.stderr)) r = await emit([]);
     if (r.code !== 0) {
       return { ok: false, diagnostics: parseDiagnostics(r.stderr) };
     }
@@ -66,7 +69,8 @@ export async function emitTS(opts) {
       const importPath = path.relative(outDir, tsFile).split(path.sep).join("/").replace(/\.ts$/, "");
       const code = absoluteFileImports(stripSourceMapComment(await readFile(tsFile, "utf8")), tsFile, outDir);
       const map = JSON.parse(await readFile(tsFile + ".map", "utf8"));
-      modules.push({ importPath, code, map });
+      const dts = await readFile(tsFile.replace(/\.ts$/, ".d.ts"), "utf8").catch(() => undefined);
+      modules.push({ importPath, code, map, dts });
     }
     const runtimeDir = path.join(outDir, "@goesm", "runtime");
     /** @type {RuntimeFile[]} */

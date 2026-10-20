@@ -59,6 +59,7 @@ import {
 } from "./compile.js";
 import { findGoModule } from "./gomod.js";
 import { GoProgram } from "./program.js";
+import { goImportTypes, writeTypes } from "./types.js";
 
 const PREFIX = "gosfc:";
 const TREE_PREFIX = PREFIX + "goesm/";
@@ -80,9 +81,12 @@ const RUNTIME_FILES = new Map(
 const GO_KEYWORDS = new Set(["break", "case", "chan", "const", "continue", "default", "defer", "else", "fallthrough", "for", "func", "go", "goto", "if", "import", "interface", "map", "package", "range", "return", "select", "struct", "switch", "type", "var"]);
 
 /**
+ * @param {{ dts?: string | false | (() => string | undefined) }} [options]
+ *   dts: where to write the types of go: imports (types.js), relative to
+ *   Vite's root; gosfc.d.ts unless set, false for nowhere
  * @returns {import("vite").Plugin}
  */
-export default function gosfc() {
+export default function gosfc(options = {}) {
   /** @type {import("vite").ResolvedConfig} */
   let config;
   /** @type {import("vite").ViteDevServer | undefined} */
@@ -142,11 +146,21 @@ export default function gosfc() {
       setModule(id, code, m.map);
     }
     for (const f of o.runtime) setModule(RT_PREFIX + f.file, f.code, null);
+    writeGoTypes();
     if (server) {
       const t = Date.now();
       for (const id of changed) for (const mod of graphModules(id)) mod.graph.invalidateModule(mod.node, new Set(), t, true);
     }
     return changed;
+  }
+
+  // Writes the types of the go: imports of every program (types.js), once
+  // there are any.
+  function writeGoTypes() {
+    const d = options.dts === undefined ? "gosfc.d.ts" : typeof options.dts === "function" ? options.dts() : options.dts;
+    if (!d) return;
+    const content = goImportTypes(programs.values());
+    if (content) writeTypes(path.resolve(config.root, d), content);
   }
 
   /** The nodes of a module id in the module graphs of the dev server's environments. */
@@ -556,3 +570,4 @@ function scanAstro(code) {
 }
 
 export { compileAstro, compileSfc } from "./compile.js";
+export { PLACEHOLDER as GO_TYPES_PLACEHOLDER, scanGoImportTypes, writeTypes } from "./types.js";
