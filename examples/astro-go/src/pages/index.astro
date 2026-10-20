@@ -12,6 +12,12 @@ title := strings.ToUpper("go without vue")
   <body>
     <h1>{title}</h1>
     <button id="go-counter" type="button">0</button>
+    <p id="price"></p>
+    <script>
+      // A TypeScript script importing a Go package, typed by go-imports.d.ts.
+      import { Yen } from "go:example.com/astrogo/src/lib";
+      document.getElementById("price")!.textContent = Yen(1200);
+    </script>
     <script lang="go">
 import (
 	"strconv"

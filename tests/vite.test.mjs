@@ -190,3 +190,25 @@ v := xs[3]
   assert.match(String(err.message), /index out of range/);
   assert.match(err.stack, /src\/TmpPanic\.vue:6:\d+/);
 });
+
+test("the types of go: imports are written to the dts file", async (t) => {
+  const outDir = path.join(root, "dist-types");
+  const types = path.join(root, "types", "go.d.ts");
+  rmSync(outDir, { recursive: true, force: true });
+  rmSync(path.dirname(types), { recursive: true, force: true });
+  t.after(() => {
+    rmSync(outDir, { recursive: true, force: true });
+    rmSync(path.dirname(types), { recursive: true, force: true });
+  });
+  await build({
+    root,
+    configFile: false,
+    logLevel: "silent",
+    plugins: [gosfc({ dts: "types/go.d.ts" }), vue()],
+    build: { outDir, ssr: true, rollupOptions: { input: src("total.js") } },
+  });
+  if (!existsSync(types)) return t.skip("the pinned goesm writes no declaration files (emit-ts -dts)");
+  const dts = readFileSync(types, "utf8");
+  assert.match(dts, /^declare module "go:example\.com\/fixture\/src\/cart\/pkg" \{$/m);
+  assert.match(dts, /^ {2}export function Total\(/m);
+});

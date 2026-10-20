@@ -12,10 +12,18 @@
 // runs the lowered Go in the browser. Astro compiles the rewritten file as
 // usual. A project with Go only in .astro files needs neither Vue nor
 // @astrojs/vue.
+//
+// The types of the Go packages TypeScript imports with go: go to a file
+// Astro references from .astro/types.d.ts (injectTypes), which the plugin
+// rewrites when it compiles; astro sync (and so astro check) compiles the
+// Go to write it.
 
-import gosfcVite from "@gosfc/vite";
+import gosfcVite, { GO_TYPES_PLACEHOLDER, scanGoImportTypes, writeTypes } from "@gosfc/vite";
+import { existsSync } from "node:fs";
 import { createRequire } from "node:module";
-import { pathToFileURL } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
+
+const TYPES_FILE = "go-imports.d.ts";
 
 /**
  * @param {{ vue?: false | import("@astrojs/vue").Options }} [options] options
@@ -23,16 +31,35 @@ import { pathToFileURL } from "node:url";
  * @returns {import("astro").AstroIntegration}
  */
 export default function gosfc(options = {}) {
+  /** @type {string | undefined} the file of the types of go: imports */
+  let typesFile;
+  let command = "";
   return {
     name: "@gosfc/astro",
     hooks: {
-      "astro:config:setup": async ({ config, updateConfig }) => {
+      "astro:config:setup": async ({ config, command: c, updateConfig }) => {
+        command = c;
         const integrations = [];
         if (options.vue !== false && !config.integrations.some((i) => i.name === "@astrojs/vue")) {
           const vue = await loadVue(config.root);
           if (vue) integrations.push(vue(options.vue));
         }
-        updateConfig({ integrations, vite: { plugins: [gosfcVite()] } });
+        updateConfig({ integrations, vite: { plugins: [gosfcVite({ dts: () => typesFile })] } });
+      },
+      "astro:config:done": async ({ config, injectTypes, logger }) => {
+        // Astro references the file, which gosfc writes itself (an empty
+        // content leaves it as it is): the plugin rewrites it after it
+        // compiles.
+        typesFile = fileURLToPath(injectTypes({ filename: TYPES_FILE, content: "" }));
+        if (command === "sync") {
+          try {
+            const content = await scanGoImportTypes(fileURLToPath(config.root), [fileURLToPath(config.outDir)]);
+            if (content) writeTypes(typesFile, content);
+          } catch (e) {
+            logger.warn(`the types of go: imports were not updated: ${/** @type {Error} */ (e).message}`);
+          }
+        }
+        if (!existsSync(typesFile)) writeTypes(typesFile, GO_TYPES_PLACEHOLDER);
       },
     },
   };

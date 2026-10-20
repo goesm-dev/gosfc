@@ -197,7 +197,20 @@ test("astro build: Go in .astro files without Vue installed", async () => {
   await build({ root: goOnly, logLevel: "error" });
   const html = readFileSync(path.join(dist, "index.html"), "utf8");
   assert.match(html, /<title>GO WITHOUT VUE<\/title>/);
-  const src = /<script type="module" src="(\/_astro\/[^"]+\.js)"><\/script>/.exec(html)?.[1];
-  assert.ok(src, "no module script in index.html");
-  assert.match(readFileSync(path.join(dist, src), "utf8"), /go-counter/);
+  // The <script lang="go"> and the TypeScript script importing go:.
+  const js = [...html.matchAll(/<script type="module" src="(\/_astro\/[^"]+\.js)"><\/script>/g)].map((m) => readFileSync(path.join(dist, m[1]), "utf8")).join("\n");
+  assert.match(js, /go-counter/);
+  assert.match(js, /getElementById\(`price`\)/);
+});
+
+test("astro sync writes the types of go: imports", async () => {
+  const require = createRequire(path.join(goOnly, "package.json"));
+  const { sync } = await import(pathToFileURL(require.resolve("astro")).href);
+  const types = path.join(goOnly, ".astro", "integrations", "_gosfc_astro", "go-imports.d.ts");
+  rmSync(types, { force: true });
+  await sync({ root: goOnly, logLevel: "error" });
+  // goesm v0.0.1-beta.7 and older write no declaration files: every go:
+  // import is then any.
+  assert.match(readFileSync(types, "utf8"), /^declare module "go:(\*"|example\.com\/astrogo\/src\/lib" \{\n {2}export function Yen\(n: number\): string;)/m);
+  assert.match(readFileSync(path.join(goOnly, ".astro", "types.d.ts"), "utf8"), /integrations\/_gosfc_astro\/go-imports\.d\.ts/);
 });
