@@ -1,6 +1,6 @@
 # @gosfc/astro
 
-[Astro](https://astro.build/) integration for [gosfc](https://goesm.dev/gosfc): adds `@astrojs/vue` when needed and wires in [`@gosfc/vite`](https://www.npmjs.com/package/@gosfc/vite) for Go in Vue and `.astro` files.
+[Astro](https://astro.build/) integration for [gosfc](https://goesm.dev/gosfc): adds `@astrojs/vue` when the project uses Vue and wires in [`@gosfc/vite`](https://www.npmjs.com/package/@gosfc/vite) for Go in Vue and `.astro` files.
 
 **Status: PoC.** Full docs: [goesm.dev/gosfc](https://goesm.dev/gosfc). Source and architecture: [GitHub](https://github.com/goesm-dev/gosfc).
 
@@ -20,7 +20,7 @@ npm install @gosfc/astro
 # or: pnpm add @gosfc/astro / bun add @gosfc/astro
 ```
 
-Peer dependencies: `astro` ^7, `@astrojs/vue` ^7.
+Peer dependencies: `astro` ^7, and `@astrojs/vue` ^7 for Vue components (optional: Go in `.astro` files does not need it).
 
 ## Setup
 
@@ -34,7 +34,7 @@ export default defineConfig({
 });
 ```
 
-`@astrojs/vue` is added automatically if it is not already configured.
+When `@astrojs/vue` is installed and not already configured, it is added. `gosfc({ vue: false })` never adds it, and `gosfc({ vue: { ... } })` passes options to it.
 
 Use `<script setup lang="go">` in `.vue` files and Go in `.astro` frontmatter as described in the main docs.
 

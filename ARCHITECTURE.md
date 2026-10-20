@@ -43,8 +43,9 @@ packages/vite/      @gosfc/vite: the Vite plugin. src/compile.js is the core of 
                     src/program.js keeps the Go of the app as one goesm program,
                     src/goesm.js is the only boundary with goesm, runtime/bridge.js handles template bindings,
                     runtime/astro.js the bindings of a Go frontmatter, runtime/convert.js the binding values and props of both
-packages/astro/     @gosfc/astro: an integration that only configures @astrojs/vue + @gosfc/vite
+packages/astro/     @gosfc/astro: an integration that only configures @gosfc/vite (+ @astrojs/vue if installed)
 examples/astro/     The PoC (Astro → Vue → gosfc → goesm → Vite), and an .astro page written in Go
+examples/astro-go/  Go in .astro files only, without Vue installed
 tests/              Node tests (Astro build, Vite build / SSR / HMR, diagnostics) and fixtures
 ```
 
@@ -161,7 +162,7 @@ There is no custom HMR runtime. The decisions and updates are those of `@vitejs/
 
 ## 9. Astro
 
-`@gosfc/astro` only configures `@astrojs/vue` (if not already present) and `@gosfc/vite`. To Astro, a component with a Go block is an ordinary Vue component: without `client:*` it becomes static HTML through Astro's SSR, and with `client:load` it becomes an island that hydrates the same SSR HTML. There is no separate renderer such as Go-native SSR; SSR and the client run the same lowered modules.
+`@gosfc/astro` only configures `@gosfc/vite`, and `@astrojs/vue` when the project has it installed and has not configured it. A project with Go only in `.astro` files needs neither Vue nor `@astrojs/vue` (`vue` and `@astrojs/vue` are optional peer dependencies). To Astro, a component with a Go block is an ordinary Vue component: without `client:*` it becomes static HTML through Astro's SSR, and with `client:load` it becomes an island that hydrates the same SSR HTML. There is no separate renderer such as Go-native SSR; SSR and the client run the same lowered modules.
 
 ### Go in .astro files
 
