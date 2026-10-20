@@ -239,7 +239,7 @@ export function getStaticPaths() {
 ---
 ```
 
-これらの import には TypeScript の型が付きます。goesm v0.0.1-beta.7 より後のバージョンでは、goesm がエクスポートの宣言ファイルを書き出します (`goesm emit-ts -dts`)。gosfc はそれをもとに、JavaScript が `go:` で import する各パッケージをモジュールとして宣言します。
+これらの import には TypeScript の型が付きます。goesm v0.0.1-beta.8 以降では、goesm がエクスポートの宣言ファイルを書き出します (`goesm emit-ts -dts`)。gosfc はそれをもとに、JavaScript が `go:` で import する各パッケージをモジュールとして宣言します。
 
 ```ts
 declare module "go:example.com/app/content" {
