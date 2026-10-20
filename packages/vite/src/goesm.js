@@ -117,17 +117,31 @@ export function parseDiagnostics(stderr) {
  * goesm writes the files that //goesm:import directives import (a .ts
  * function, a .vue component) relative to the module's place in the output
  * directory. The modules live in Vite's module graph under virtual ids, so
- * those imports become absolute paths of the files.
+ * those imports become absolute paths of the files, the dynamic import()
+ * of a lazy directive too.
  * @param {string} code
  * @param {string} tsFile
  * @param {string} outDir
  */
-function absoluteFileImports(code, tsFile, outDir) {
-  return code.replace(/^(import\b[^"\n]*from )"(\.\.?\/[^"\n]*)";$/gm, (line, head, spec) => {
+export function absoluteFileImports(code, tsFile, outDir) {
+  /** @param {string} spec */
+  const absolute = (spec) => {
     const target = path.resolve(path.dirname(tsFile), spec);
-    if (target.startsWith(outDir + path.sep)) return line;
-    return `${head}${JSON.stringify(target.split(path.sep).join("/"))};`;
-  });
+    return target.startsWith(outDir + path.sep) ? undefined : JSON.stringify(target.split(path.sep).join("/"));
+  };
+  return code
+    .replace(/^(import\b[^"\n]*from )"(\.\.?\/[^"\n]*)";$/gm, (line, head, spec) => {
+      const abs = absolute(spec);
+      return abs ? `${head}${abs};` : line;
+    })
+    .replace(
+      // The loader of a lazy //goesm:import: const f = (): Promise<any> => (f$m ??= import("./x.ts"));
+      /^(const ([\w$]+) = \(\): Promise<any> => \(\2\$m \?\?= import\()"(\.\.?\/[^"\n]*)"(\)\);)$/gm,
+      (line, head, _name, spec, tail) => {
+        const abs = absolute(spec);
+        return abs ? `${head}${abs}${tail}` : line;
+      },
+    );
 }
 
 /** @param {string} code */

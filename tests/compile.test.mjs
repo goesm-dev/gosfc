@@ -244,3 +244,26 @@ test("go: imports in comments and other strings import nothing", async () => {
   ].join("\n");
   assert.deepEqual(goImports(code), ["example.com/a", "example.com/b", "example.com/c"]);
 });
+
+test("files imported by //goesm:import, lazy ones too, become absolute paths", async () => {
+  const { absoluteFileImports } = await import("../packages/vite/src/goesm.js");
+  const out = path.join(path.sep, "tmp", "out");
+  const ts = path.join(out, "example.com", "app", "pkg.ts");
+  const code = [
+    `import { render as jsImport } from "../../../src/render.ts";`,
+    `import { a } from "../other.ts";`,
+    `let jsLazy$m: Promise<any> | undefined;`,
+    `const jsLazy = (): Promise<any> => (jsLazy$m ??= import("../../../src/pdf.ts"));`,
+    `const s = "import(\\"../../../src/x.ts\\")";`,
+  ].join("\n");
+  assert.equal(
+    absoluteFileImports(code, ts, out),
+    [
+      `import { render as jsImport } from "/tmp/src/render.ts";`,
+      `import { a } from "../other.ts";`,
+      `let jsLazy$m: Promise<any> | undefined;`,
+      `const jsLazy = (): Promise<any> => (jsLazy$m ??= import("/tmp/src/pdf.ts"));`,
+      `const s = "import(\\"../../../src/x.ts\\")";`,
+    ].join("\n"),
+  );
+});

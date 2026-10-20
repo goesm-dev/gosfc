@@ -169,3 +169,35 @@ test("a Go type error in a Go frontmatter fails astro build with the .astro posi
   assert.match(err.message, /tmp-astro-typeerror\/pages\/index\.astro:4:21: cannot use "x" .*\[go\/types\]/);
   assert.doesNotMatch(err.message, /setup\.go|_gosfc|\.ts:\d/);
 });
+
+test("@gosfc/astro adds @astrojs/vue only when the project has it", async () => {
+  const { default: gosfc } = await import("../packages/astro/src/index.js");
+  /** @param {string} dir @param {object} [options] */
+  const added = async (dir, options) => {
+    let integrations;
+    await gosfc(options).hooks["astro:config:setup"]({
+      config: { root: pathToFileURL(dir + path.sep), integrations: [] },
+      updateConfig: (c) => (integrations = c.integrations),
+    });
+    return integrations.map((i) => i.name);
+  };
+  assert.deepEqual(await added(example), ["@astrojs/vue"]);
+  assert.deepEqual(await added(example, { vue: false }), []);
+  assert.deepEqual(await added(goOnly), []);
+});
+
+const goOnly = fileURLToPath(new URL("../examples/astro-go/", import.meta.url));
+
+test("astro build: Go in .astro files without Vue installed", async () => {
+  const require = createRequire(path.join(goOnly, "package.json"));
+  assert.throws(() => require.resolve("@astrojs/vue"), { code: "MODULE_NOT_FOUND" });
+  const { build } = await import(pathToFileURL(require.resolve("astro")).href);
+  const dist = path.join(goOnly, "dist");
+  rmSync(dist, { recursive: true, force: true });
+  await build({ root: goOnly, logLevel: "error" });
+  const html = readFileSync(path.join(dist, "index.html"), "utf8");
+  assert.match(html, /<title>GO WITHOUT VUE<\/title>/);
+  const src = /<script type="module" src="(\/_astro\/[^"]+\.js)"><\/script>/.exec(html)?.[1];
+  assert.ok(src, "no module script in index.html");
+  assert.match(readFileSync(path.join(dist, src), "utf8"), /go-counter/);
+});

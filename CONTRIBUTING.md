@@ -41,7 +41,7 @@ In addition, please keep the following commitments:
 * gosfc calls goesm only through its CLI (`go tool goesm emit-ts -overlay ...`). goesm's Go packages are under `internal/`, so they are not imported.
 * The boundary is a single file, `packages/vite/src/goesm.js`. When changing how goesm is called, change only this file.
 * If a change is needed on the goesm side, open a pull request against [goesm](https://github.com/goesm-dev/goesm). Do not put knowledge of Vue or SFCs into goesm; propose it as a general-purpose feature (for example, `-overlay`).
-* goesm is pinned to a release (`v0.0.1-beta.N`). When a new release comes out, run `go get -tool github.com/goesm-dev/goesm/cmd/goesm@<version>` in `examples/astro/go.mod`, `tests/fixtures/app/go.mod`, and `bench/go.mod`.
+* goesm is pinned to a release (`v0.0.1-beta.N`). When a new release comes out, run `go get -tool github.com/goesm-dev/goesm/cmd/goesm@<version>` in `examples/astro/go.mod`, `examples/astro-go/go.mod`, `tests/fixtures/app/go.mod`, and `bench/go.mod`.
 
 ## Development environment
 
