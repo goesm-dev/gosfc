@@ -20,7 +20,7 @@ npm install @gosfc/vite
 # or: pnpm add @gosfc/vite / bun add @gosfc/vite
 ```
 
-Peer dependencies: `vite` ^8, `vue` ^3.5.
+Peer dependencies: `vite` ^8, and `vue` ^3.5 for `.vue` files (optional: Go in `.astro` files does not need it).
 
 ## Setup
 

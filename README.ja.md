@@ -46,7 +46,7 @@ total := cart.Total(items)
    go get -tool github.com/goesm-dev/gosfc/cmd/gosfc@<version>
    ```
 
-2. Astro にインテグレーションを追加します。`@astrojs/vue` が無ければ追加されます。
+2. Astro にインテグレーションを追加します。プロジェクトに `@astrojs/vue` がインストールされていれば、設定に無い場合に追加されます。Go を `.astro` ファイルだけに書くプロジェクトには、Vue も `@astrojs/vue` も要りません。[examples/astro-go](examples/astro-go) がその例です。
 
    ```js
    // astro.config.mjs
