@@ -241,6 +241,16 @@ export function getStaticPaths() {
 ---
 ```
 
+TypeScript sees the types of these imports. With goesm after v0.0.1-beta.7, gosfc declares each package JavaScript imports with `go:` as a module, from the declaration file of its exports that goesm writes (`goesm emit-ts -dts`):
+
+```ts
+declare module "go:example.com/app/content" {
+  export function Slugs(): Array<string>;
+}
+```
+
+In Astro, `@gosfc/astro` writes the declarations to `.astro/integrations/_gosfc_astro/go-imports.d.ts`, which `.astro/types.d.ts` references, so `astro check` and editors see them. `astro sync`, and so `astro check`, compiles the Go to write them; `astro dev` and `astro build` rewrite them when they compile. With Vite alone, `@gosfc/vite` writes them to `gosfc.d.ts` in Vite's root, which the `include` of the project's `tsconfig.json` must cover; `gosfc({ dts: "src/gosfc.d.ts" })` picks another file and `gosfc({ dts: false })` none. Until the Go has been compiled once, the file declares every `go:` import as `any`.
+
 ## Benchmark
 
 The same components written with `<script setup lang="go">` and with `<script setup lang="ts">` ([bench/](bench)), built with Vite 8 and `@vitejs/plugin-vue`. The Go side adds `@gosfc/vite` in front; nothing else differs.

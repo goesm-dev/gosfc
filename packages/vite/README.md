@@ -37,6 +37,8 @@ export default {
 
 Use `<script setup lang="go">` in `.vue` files. Components with `lang="ts"` or plain `<script setup>` are unchanged.
 
+The plugin writes the TypeScript types of the Go packages that JavaScript imports with `go:` to `gosfc.d.ts` in Vite's root (with goesm after v0.0.1-beta.7). Include it in `tsconfig.json`, or pick another file with `gosfc({ dts: "src/gosfc.d.ts" })`; `gosfc({ dts: false })` writes none.
+
 For Astro, use [`@gosfc/astro`](https://www.npmjs.com/package/@gosfc/astro) instead.
 
 ## Documentation

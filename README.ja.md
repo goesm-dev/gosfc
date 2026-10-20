@@ -239,6 +239,16 @@ export function getStaticPaths() {
 ---
 ```
 
+これらの import には TypeScript の型が付きます。goesm v0.0.1-beta.7 より後のバージョンでは、goesm がエクスポートの宣言ファイルを書き出します (`goesm emit-ts -dts`)。gosfc はそれをもとに、JavaScript が `go:` で import する各パッケージをモジュールとして宣言します。
+
+```ts
+declare module "go:example.com/app/content" {
+  export function Slugs(): Array<string>;
+}
+```
+
+Astro では、`@gosfc/astro` がこの宣言を `.astro/integrations/_gosfc_astro/go-imports.d.ts` に書き出します。このファイルは `.astro/types.d.ts` から参照されるので、`astro check` とエディターから型が見えます。`astro sync` と、それを実行する `astro check` は、Go をコンパイルして宣言を書き出します。`astro dev` と `astro build` は、コンパイルするたびに宣言を書き直します。Vite だけを使う場合、`@gosfc/vite` は Vite のルートの `gosfc.d.ts` に宣言を書き出します。このファイルは、プロジェクトの `tsconfig.json` の `include` に含めます。`gosfc({ dts: "src/gosfc.d.ts" })` で別のファイルを指定でき、`gosfc({ dts: false })` で書き出さないようにできます。Go を一度もコンパイルしていない間は、すべての `go:` の import を `any` として宣言します。
+
 ## ベンチマーク
 
 同じコンポーネントを `<script setup lang="go">` と `<script setup lang="ts">` で書いて比べています（[bench/](bench)）。どちらも Vite 8 と `@vitejs/plugin-vue` でビルドし、Go 側は前に `@gosfc/vite` を置く以外は同じ設定です。
