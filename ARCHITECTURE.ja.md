@@ -43,8 +43,9 @@ packages/vite/      @gosfc/vite: Vite plugin。src/compile.js が SFC と .astro
                     src/program.js がアプリの Go を 1 つの goesm プログラムにまとめる、
                     src/goesm.js が goesm との唯一の境界、runtime/bridge.js が template binding、
                     runtime/astro.js が Go のフロントマターの binding、runtime/convert.js が両者のバインディングの値と props
-packages/astro/     @gosfc/astro: @astrojs/vue + @gosfc/vite を設定するだけの integration
+packages/astro/     @gosfc/astro: @gosfc/vite（と、インストールされていれば @astrojs/vue）を設定するだけの integration
 examples/astro/     PoC（Astro → Vue → gosfc → goesm → Vite）と Go で書いた .astro のページ
+examples/astro-go/  Vue をインストールせず、Go を .astro ファイルだけに書く例
 tests/              Node のテスト（Astro build、Vite build / SSR / HMR、診断）と fixture
 ```
 
@@ -161,7 +162,7 @@ goesm 側の変更はこの PoC のために 1 つだけです：`build` / `emit
 
 ## 9. Astro
 
-`@gosfc/astro` は `@astrojs/vue`（まだ無ければ）と `@gosfc/vite` を設定するだけです。Go ブロックを持つコンポーネントは Astro から見て普通の Vue コンポーネントで、`client:*` なしなら Astro の SSR で静的 HTML に、`client:load` なら同じ SSR HTML をハイドレートするアイランドになります。Go native SSR のような別のレンダラーはなく、SSR とクライアントは同じ lowering 済みのモジュールを実行します。
+`@gosfc/astro` は `@gosfc/vite` を設定し、プロジェクトに `@astrojs/vue` がインストールされていて設定に無ければ、それも追加するだけです。Go を `.astro` ファイルだけに書くプロジェクトには、Vue も `@astrojs/vue` も要りません。`vue` と `@astrojs/vue` は任意のピア依存です。Go ブロックを持つコンポーネントは Astro から見て普通の Vue コンポーネントで、`client:*` なしなら Astro の SSR で静的 HTML に、`client:load` なら同じ SSR HTML をハイドレートするアイランドになります。Go native SSR のような別のレンダラーはなく、SSR とクライアントは同じ lowering 済みのモジュールを実行します。
 
 ### .astro ファイルの Go
 

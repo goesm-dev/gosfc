@@ -1,7 +1,7 @@
 {
   "name": "@gosfc/astro",
   "version": "0.0.1-beta.4",
-  "description": "Astro integration for gosfc: @astrojs/vue plus @gosfc/vite",
+  "description": "Astro integration for gosfc: @gosfc/vite, plus @astrojs/vue when the project uses Vue",
   "license": "MIT",
   "repository": {
     "type": "git",
@@ -26,5 +26,10 @@
   "peerDependencies": {
     "@astrojs/vue": "^7.0.0",
     "astro": "^7.0.0"
+  },
+  "peerDependenciesMeta": {
+    "@astrojs/vue": {
+      "optional": true
+    }
   }
 }
