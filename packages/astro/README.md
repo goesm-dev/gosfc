@@ -38,7 +38,7 @@ When `@astrojs/vue` is installed and not already configured, it is added. `gosfc
 
 Use `<script setup lang="go">` in `.vue` files and Go in `.astro` frontmatter as described in the main docs.
 
-The TypeScript types of the Go packages that TypeScript imports with `go:` are written to `.astro/integrations/_gosfc_astro/go-imports.d.ts`, which `.astro/types.d.ts` references (with goesm after v0.0.1-beta.7). `astro sync` and `astro check` compile the Go to write them.
+The TypeScript types of the Go packages that TypeScript imports with `go:` are written to `.astro/integrations/_gosfc_astro/go-imports.d.ts`, which `.astro/types.d.ts` references (with goesm v0.0.1-beta.8 or later). `astro sync` and `astro check` compile the Go to write them.
 
 For Vite + Vue without Astro, use [`@gosfc/vite`](https://www.npmjs.com/package/@gosfc/vite) instead.
 
