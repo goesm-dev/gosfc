@@ -241,7 +241,7 @@ export function getStaticPaths() {
 ---
 ```
 
-TypeScript sees the types of these imports. With goesm after v0.0.1-beta.7, gosfc declares each package JavaScript imports with `go:` as a module, from the declaration file of its exports that goesm writes (`goesm emit-ts -dts`):
+TypeScript sees the types of these imports. With goesm v0.0.1-beta.8 or later, gosfc declares each package JavaScript imports with `go:` as a module, from the declaration file of its exports that goesm writes (`goesm emit-ts -dts`):
 
 ```ts
 declare module "go:example.com/app/content" {

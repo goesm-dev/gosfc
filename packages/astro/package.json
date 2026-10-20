@@ -1,6 +1,6 @@
 {
   "name": "@gosfc/astro",
-  "version": "0.0.1-beta.4",
+  "version": "0.0.1-beta.5",
   "description": "Astro integration for gosfc: @gosfc/vite, plus @astrojs/vue when the project uses Vue",
   "license": "MIT",
   "repository": {
