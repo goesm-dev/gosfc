@@ -21,6 +21,9 @@ const moduleCache = new Map();
  * @returns {GoModule | null}
  */
 export function findGoModule(dir) {
+  // Vite's ids use slashes on Windows too: one directory, one key (and one
+  // program in index.js).
+  dir = path.resolve(dir);
   if (moduleCache.has(dir)) return moduleCache.get(dir) ?? null;
   let result = null;
   const gomod = path.join(dir, "go.mod");
