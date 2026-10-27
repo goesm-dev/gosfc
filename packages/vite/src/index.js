@@ -362,7 +362,9 @@ export default function gosfc(options = {}) {
       // goesm's imports between packages, rewritten by publish.
       if (source.startsWith(TREE_PREFIX) && modules.has(source)) return source;
       // A file a //goesm:import directive imports (goesm.js made it absolute).
-      if (importer?.startsWith(TREE_PREFIX) && path.isAbsolute(source)) return source;
+      // On Windows goesm writes it with backslashes; Vite's ids use slashes,
+      // and a .vue under another id loses its <style> in Astro's CSS.
+      if (importer?.startsWith(TREE_PREFIX) && path.isAbsolute(source)) return source.split(path.sep).join("/");
       if (importer?.startsWith(TREE_PREFIX) && (source.startsWith("./") || source.startsWith("../"))) {
         const rel = path.posix.join(path.posix.dirname(importer.slice(TREE_PREFIX.length)), source);
         return TREE_PREFIX + (rel.endsWith(".ts") ? rel : rel + ".ts");
