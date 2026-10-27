@@ -1,6 +1,6 @@
 {
   "name": "@gosfc/vite",
-  "version": "0.0.1-beta.5",
+  "version": "0.0.1-beta.6",
   "description": "Vite plugin that compiles <script setup lang=\"go\"> in Vue SFCs and Go in .astro files through goesm",
   "license": "MIT",
   "repository": {
