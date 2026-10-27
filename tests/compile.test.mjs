@@ -268,6 +268,14 @@ test("files imported by //goesm:import, lazy ones too, become absolute paths", a
   );
 });
 
+test("a directory written two ways is one Go module", async () => {
+  // Vite's ids use slashes on Windows, path.join backslashes.
+  const { findGoModule } = await import("../packages/vite/src/gomod.js");
+  const a = findGoModule(path.join(app, "src"));
+  assert.equal(findGoModule(app + "src/./"), a);
+  assert.equal(a.dir, path.resolve(app));
+});
+
 test("go: imports are declared as modules from goesm's declaration files", async () => {
   const { goImportTypes } = await import("../packages/vite/src/types.js");
   const program = (imports, modules, error = null) => ({ imports, outcome: { modules, error } });
