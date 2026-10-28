@@ -19,6 +19,12 @@ func jsWatch(src func() int, cb func()) js.Value
 //goesm:import "vue" watchEffect
 func jsWatchEffect(f func()) js.Value
 
+//goesm:import "vue" getCurrentScope
+func getCurrentScope() js.Value
+
+//goesm:import "vue" onScopeDispose
+func onScopeDispose(f func())
+
 //goesm:import "vue" getCurrentInstance
 func getCurrentInstance() js.Value
 
@@ -102,15 +108,17 @@ func Watch[T comparable](src func() T, cb func(v T)) (stop func()) {
 	first := true
 	// n counts the values src returned, seen the ones cb was called with.
 	n, seen := 0, 0
-	running, late := false, false
+	// running counts the getters still in src; late is set when Vue called
+	// back meanwhile.
+	running, late, stopped := 0, false, false
 	fire := func() {
-		if n != seen {
+		if n != seen && !stopped {
 			seen = n
 			cb(last)
 		}
 	}
 	h := jsWatch(func() int {
-		running = true
+		running++
 		readProps(props)
 		v := src()
 		if first {
@@ -121,8 +129,8 @@ func Watch[T comparable](src func() T, cb func(v T)) (stop func()) {
 			last = v
 			n++
 		}
-		running = false
-		if late {
+		running--
+		if late && running == 0 {
 			late = false
 			fire()
 		}
@@ -131,14 +139,22 @@ func Watch[T comparable](src func() T, cb func(v T)) (stop func()) {
 		// goesm makes this getter async (src may be), so Vue sees a new
 		// Promise each time and calls back whenever anything src read
 		// changes: only a new value counts. A src that blocks is still
-		// running here; the getter then calls cb itself when it returns.
-		if running {
+		// running here; the last getter to return then calls cb itself,
+		// once, with the newest value.
+		if running > 0 {
 			late = true
 			return
 		}
 		fire()
 	})
-	return func() { h.Invoke() }
+	if getCurrentScope().Truthy() {
+		// The component unmounted: a getter still in src calls back no more.
+		onScopeDispose(func() { stopped = true })
+	}
+	return func() {
+		stopped = true
+		h.Invoke()
+	}
 }
 
 // WatchEffect runs f now and again each time a Ref or Computed it read

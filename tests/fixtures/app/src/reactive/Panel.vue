@@ -14,6 +14,7 @@
     <p class="watched">{{ watched }}</p>
     <p class="steady">{{ steady }}</p>
     <p class="slow">{{ slow }}</p>
+    <p class="slowest">{{ slowest }}</p>
     <button class="bump" @click="bump">{{ clicks }}</button>
   </div>
 </template>
@@ -72,6 +73,16 @@ vue.Watch(func() int {
 	time.Sleep(time.Millisecond)
 	return n
 }, func(int) { slow.Set(slow.Get() + 1) })
+
+// slowest is the last value seen by a watcher whose src blocks longer
+// than the ticks are apart: its getters overlap, and the newest value
+// still arrives.
+slowest := vue.NewRef(0)
+vue.Watch(func() int {
+	n := ticks.Get()
+	time.Sleep(60 * time.Millisecond)
+	return n
+}, func(n int) { slowest.Set(n) })
 
 vue.OnMounted(func() {
 	mounted.Set(true)
