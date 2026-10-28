@@ -12,6 +12,8 @@
     <p class="picked">{{ picked }}</p>
     <p class="mounted">{{ mounted }}</p>
     <p class="watched">{{ watched }}</p>
+    <p class="steady">{{ steady }}</p>
+    <p class="slow">{{ slow }}</p>
     <button class="bump" @click="bump">{{ clicks }}</button>
   </div>
 </template>
@@ -56,6 +58,20 @@ func Picked(label string, n int) {
 }
 
 vue.Watch(func() int { return ticks.Get() }, func(n int) { watched.Set(watched.Get() + 1) })
+
+// steady counts the calls of a watcher whose value never changes, though
+// the Ref it reads does: there must be none.
+steady := vue.NewRef(0)
+vue.Watch(func() bool { return ticks.Get() < 0 }, func(bool) { steady.Set(steady.Get() + 1) })
+
+// slow counts the changes a watcher whose src blocks noticed. Such a src
+// makes goesm turn every watcher's getter async.
+slow := vue.NewRef(0)
+vue.Watch(func() int {
+	n := ticks.Get()
+	time.Sleep(time.Millisecond)
+	return n
+}, func(int) { slow.Set(slow.Get() + 1) })
 
 vue.OnMounted(func() {
 	mounted.Set(true)

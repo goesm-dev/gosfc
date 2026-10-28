@@ -100,17 +100,44 @@ func Watch[T comparable](src func() T, cb func(v T)) (stop func()) {
 	props := propsDep()
 	var last T
 	first := true
-	n := 0
+	// n counts the values src returned, seen the ones cb was called with.
+	n, seen := 0, 0
+	running, late := false, false
+	fire := func() {
+		if n != seen {
+			seen = n
+			cb(last)
+		}
+	}
 	h := jsWatch(func() int {
+		running = true
 		readProps(props)
 		v := src()
-		if first || v != last {
-			first = false
+		if first {
+			first, last = false, v
+			n++
+			seen = n
+		} else if v != last {
 			last = v
 			n++
 		}
+		running = false
+		if late {
+			late = false
+			fire()
+		}
 		return n
-	}, func() { cb(last) })
+	}, func() {
+		// goesm makes this getter async (src may be), so Vue sees a new
+		// Promise each time and calls back whenever anything src read
+		// changes: only a new value counts. A src that blocks is still
+		// running here; the getter then calls cb itself when it returns.
+		if running {
+			late = true
+			return
+		}
+		fire()
+	})
 	return func() { h.Invoke() }
 }
 

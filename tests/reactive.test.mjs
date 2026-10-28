@@ -36,6 +36,10 @@ test("vue package: Refs, Computeds, watchers, hooks, v-model, template refs, pro
   assert.equal(await text(".doubled"), "6");
   assert.equal(await text(".parity"), "odd");
   assert.equal(await text(".watched"), "3");
+  // A watcher runs only when its value changes, not on every change of
+  // the Refs it reads.
+  assert.equal(await text(".steady"), "0");
+  await waitText(".slow", "3");
   assert.equal(await text(".mounted"), "true");
   assert.equal(await text(".canvas"), "CANVAS");
 
@@ -54,6 +58,8 @@ test("vue package: Refs, Computeds, watchers, hooks, v-model, template refs, pro
   await page.fill("input.name", "vue");
   await waitText(".greeting", "Hello, VUE");
   assert.equal(await text(".child .label"), "vue");
+  // Another prop changing does not wake the watcher on count.
+  assert.equal(await text(".child .seen"), "3");
 
   // Prop defaults: a field's default tag fills a prop the parent leaves out.
   assert.equal(await text(".child .size"), "20");
