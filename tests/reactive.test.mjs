@@ -40,6 +40,7 @@ test("vue package: Refs, Computeds, watchers, hooks, v-model, template refs, pro
   // the Refs it reads.
   assert.equal(await text(".steady"), "0");
   await waitText(".slow", "3");
+  await waitText(".slowest", "3");
   assert.equal(await text(".mounted"), "true");
   assert.equal(await text(".canvas"), "CANVAS");
 
