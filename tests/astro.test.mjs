@@ -186,6 +186,38 @@ test("@gosfc/astro adds @astrojs/vue only when the project has it", async () => 
   assert.deepEqual(await added(goOnly), []);
 });
 
+test("astro build: the browser's Go leaves out what only the server's Go needs", async (t) => {
+  // A package the browser and the server share: Label is stored in an
+  // interface value in both, and only the server calls its Describe through
+  // an interface (an .astro frontmatter and an endpoint). The browser's
+  // program does not call it, so its bundle has no Describe.
+  const src = path.join(example, "src");
+  const files = {
+    "features/shared/label.go": 'package shared\n\ntype Label struct{ Name string }\n\nfunc (l Label) Describe() string { return "describe-" + l.Name + "-marker" }\n\nfunc Get(name string) any { return Label{name} }\n',
+    "features/shared/server/server.go": 'package server\n\nimport "example.com/app/src/features/shared"\n\nfunc Describe(name string) string {\n\tif d, ok := shared.Get(name).(interface{ Describe() string }); ok {\n\t\treturn d.Describe()\n\t}\n\treturn ""\n}\n',
+    "features/shared/Shared.vue": '<template><p class="shared">{{ label }}</p></template>\n\n<script setup lang="go">\nimport "example.com/app/src/features/shared"\n\nlabel := shared.Get("client") != nil\n</script>\n',
+    "pages/shared.astro": '---go\nimport (\n\tserver "example.com/app/src/features/shared/server"\n\tShared "../features/shared/Shared.vue"\n)\n\ntext := server.Describe("page")\n---\n\n<p class="server">{text}</p>\n<Shared client:load />\n',
+    "pages/describe.ts": 'import { Describe } from "go:example.com/app/src/features/shared/server";\n\nexport const GET = () => new Response(Describe("endpoint"));\n',
+  };
+  for (const [f, c] of Object.entries(files)) {
+    mkdirSync(path.dirname(path.join(src, f)), { recursive: true });
+    writeFileSync(path.join(src, f), c);
+  }
+  t.after(() => {
+    rmSync(path.join(src, "features/shared"), { recursive: true, force: true });
+    rmSync(path.join(src, "pages/shared.astro"), { force: true });
+    rmSync(path.join(src, "pages/describe.ts"), { force: true });
+  });
+  const dist = path.join(example, "dist-shared");
+  t.after(() => rmSync(dist, { recursive: true, force: true }));
+  await build({ root: example, outDir: dist, logLevel: "error" });
+  assert.match(readFileSync(path.join(dist, "shared", "index.html"), "utf8"), /<p class="server">describe-page-marker<\/p>/);
+  const assets = path.join(dist, "_astro");
+  const client = readdirSync(assets).filter((f) => f.endsWith(".js")).map((f) => readFileSync(path.join(assets, f), "utf8")).join("\n");
+  assert.match(client, /shared/);
+  assert.doesNotMatch(client, /-marker/);
+});
+
 const goOnly = fileURLToPath(new URL("../examples/astro-go/", import.meta.url));
 
 test("astro build: Go in .astro files without Vue installed", async () => {
