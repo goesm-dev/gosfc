@@ -530,12 +530,17 @@ export function goImports(code) {
  * it is compiled. Directories Vite does not serve from are skipped: hidden
  * ones, node_modules, build output (outDirs, and caches marked with
  * CACHEDIR.TAG, such as Cargo's target).
+ *
+ * With opts.client, only the Go that can run in the browser: not the
+ * frontmatter of .astro files (a Go one, or the go: imports of a TypeScript
+ * one), nor the go: imports of the files opts.serverOnly names.
  * @param {string} root
  * @param {import("./gomod.js").GoModule} mod
  * @param {string[]} outDirs
+ * @param {{ client?: boolean, serverOnly?: (file: string) => boolean }} [opts]
  * @returns {Promise<{ blocks: GoBlock[], imports: [string, string][] }>}
  */
-export async function scanGoModule(root, mod, outDirs) {
+export async function scanGoModule(root, mod, outDirs, opts = {}) {
   const files = [];
   const walk = (dir) => {
     let entries;
@@ -576,13 +581,15 @@ export async function scanGoModule(root, mod, outDirs) {
       }
       if (file.endsWith(".astro") && mayHaveGoAstro(code)) {
         const fm = goFrontmatter(code, file, root);
-        if (fm) inputs.push(frontmatterBlock(code, file, fm, root));
+        if (fm && !opts.client) inputs.push(frontmatterBlock(code, file, fm, root));
         goScripts(code, fm ? fm.end : frontmatterEnd(code)).forEach((sc, i) => inputs.push(scriptBlock(code, file, sc, i, root)));
       }
     } catch {
       continue;
     }
-    for (const i of goImports(code)) imports.push([i, file]);
+    if (opts.client && opts.serverOnly?.(file)) continue;
+    const js = opts.client && file.endsWith(".astro") ? code.slice(frontmatterEnd(code)) : code;
+    for (const i of goImports(js)) imports.push([i, file]);
   }
 
   const blocks = [];

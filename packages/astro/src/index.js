@@ -13,6 +13,11 @@
 // usual. A project with Go only in .astro files needs neither Vue nor
 // @astrojs/vue.
 //
+// The Go that runs in the browser is a program of its own (see @gosfc/vite):
+// the Go frontmatter of .astro files, and the go: imports of their
+// TypeScript frontmatter, of endpoints, middleware and actions, are the
+// server's only.
+//
 // The types of the Go packages TypeScript imports with go: go to a file
 // Astro references from .astro/types.d.ts (injectTypes), which the plugin
 // rewrites when it compiles; astro sync (and so astro check) compiles the
@@ -20,6 +25,7 @@
 
 import gosfcVite, { GO_TYPES_PLACEHOLDER, scanGoImportTypes, writeTypes } from "@gosfc/vite";
 import { existsSync } from "node:fs";
+import path from "node:path";
 import { createRequire } from "node:module";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
@@ -44,7 +50,8 @@ export default function gosfc(options = {}) {
           const vue = await loadVue(config.root);
           if (vue) integrations.push(vue(options.vue));
         }
-        updateConfig({ integrations, vite: { plugins: [gosfcVite({ dts: () => typesFile })] } });
+        const src = config.srcDir && fileURLToPath(config.srcDir);
+        updateConfig({ integrations, vite: { plugins: [gosfcVite({ dts: () => typesFile, serverOnly: (file) => !!src && serverOnly(src, file) })] } });
       },
       "astro:config:done": async ({ config, injectTypes, logger }) => {
         // Astro references the file, which gosfc writes itself (an empty
@@ -63,6 +70,19 @@ export default function gosfc(options = {}) {
       },
     },
   };
+}
+
+/**
+ * Whether a JavaScript or TypeScript file under the source directory src
+ * runs on the server only: an endpoint (src/pages), the middleware
+ * (src/middleware.ts or src/middleware/) or an action (src/actions).
+ * @param {string} src
+ * @param {string} file
+ */
+export function serverOnly(src, file) {
+  const rel = path.relative(src, file).split(path.sep).join("/");
+  if (rel.startsWith("../") || !/\.[cm]?[jt]sx?$/.test(rel)) return false;
+  return /^(?:pages|actions|middleware)\//.test(rel) || /^middleware\.[cm]?[jt]s$/.test(rel);
 }
 
 /**

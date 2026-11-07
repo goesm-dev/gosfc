@@ -40,7 +40,7 @@ Astro ─────────────── routing / SSR / SSG / island
 cmd/gosfc/          Go 側の CLI（`gosfc synth`）。アプリの go.mod に tool として入る
 internal/synth/     <script setup lang="go"> と .astro の Go → synthetic Go（go/scanner のみ使用）
 packages/vite/      @gosfc/vite: Vite plugin。src/compile.js が SFC と .astro の変換の中心、
-                    src/program.js がアプリの Go を 1 つの goesm プログラムにまとめる、
+                    src/program.js がアプリの Go を環境ごとに 1 つの goesm プログラムにまとめる、
                     src/goesm.js が goesm との唯一の境界、runtime/bridge.js が template binding、
                     runtime/astro.js が Go のフロントマターの binding、runtime/convert.js が両者のバインディングの値と props
 packages/astro/     @gosfc/astro: @gosfc/vite（と、インストールされていれば @astrojs/vue）を設定するだけの integration
@@ -56,7 +56,7 @@ tests/              Node のテスト（Astro build、Vite build / SSR / HMR、�
 1. `@gosfc/vite`（`enforce: "pre"`）は `.vue` のメインリクエストのうち `<script setup lang="go">` を含むものだけを変換します。それ以外の `.vue`（`lang="ts"`、素の `<script setup>`）には触れず、`@vitejs/plugin-vue` がそのまま処理します。
 2. `@vue/compiler-sfc` の `parse` でディスクリプターを得ます。Vue のパーサーは自作しません。
 3. Go ブロックを `go tool gosfc synth` に渡し、synthetic Go とトップレベルのバインディングの一覧を得ます（§4）。
-4. synthetic Go を、アプリのほかのすべての Go ブロックの synthetic Go と、JavaScript が `go:` でインポートするパッケージと一緒に `go tool goesm emit-ts -overlay` に渡します（§5）。1 つの Go モジュールの Go は 1 つの goesm プログラムです（`packages/vite/src/program.js`）。成功すればパッケージごとの TypeScript とソースマップ、失敗すれば `.vue` 位置の診断が返ります。
+4. synthetic Go を、アプリのほかのすべての Go ブロックの synthetic Go と、JavaScript が `go:` でインポートするパッケージと一緒に `go tool goesm emit-ts -overlay` に渡します（§5）。1 つの Go モジュールの Go は、環境ごとに 1 つの goesm プログラムです（`packages/vite/src/program.js`）。goesm がパッケージに出すコードはプログラム全体で決まるので、ブラウザのプログラムにはサーバーだけで動く Go（Go のフロントマター、`.astro` のフロントマターと `serverOnly` オプションが示すファイルの `go:` インポート）を入れません。成功すればパッケージごとの TypeScript とソースマップ、失敗すれば `.vue` 位置の診断が返ります。
 5. Go ブロックだけを次の `<script setup lang="ts">` に置き換えます。テンプレート、`<style>`、`<style scoped>`、素の `<script>` は 1 バイトも変えません。行数も保つので、後ろにあるブロックの位置はずれません。
 
    ```ts
