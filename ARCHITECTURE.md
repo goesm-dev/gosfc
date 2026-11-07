@@ -40,7 +40,7 @@ Astro ─────────────── routing / SSR / SSG / island
 cmd/gosfc/          The Go-side CLI (`gosfc synth`). Added to the app's go.mod as a tool
 internal/synth/     <script setup lang="go"> (and the Go of .astro files) → synthetic Go (uses only go/scanner)
 packages/vite/      @gosfc/vite: the Vite plugin. src/compile.js is the core of the SFC and .astro transforms,
-                    src/program.js keeps the Go of the app as one goesm program,
+                    src/program.js keeps the Go of the app as one goesm program per environment,
                     src/goesm.js is the only boundary with goesm, runtime/bridge.js handles template bindings,
                     runtime/astro.js the bindings of a Go frontmatter, runtime/convert.js the binding values and props of both
 packages/astro/     @gosfc/astro: an integration that only configures @gosfc/vite (+ @astrojs/vue if installed)
@@ -56,7 +56,7 @@ There is no separate `core` package. For now the Vite plugin is the only consume
 1. `@gosfc/vite` (`enforce: "pre"`) transforms only those main requests for `.vue` files that contain `<script setup lang="go">`. Other `.vue` files (`lang="ts"`, a plain `<script setup>`) are left untouched and processed by `@vitejs/plugin-vue` as usual.
 2. The descriptor is obtained with `parse` from `@vue/compiler-sfc`. gosfc does not have its own Vue parser.
 3. The Go block is passed to `go tool gosfc synth`, which returns the synthetic Go and the list of top-level bindings (§4).
-4. The synthetic Go is passed to `go tool goesm emit-ts -overlay` (§5) together with the synthetic Go of every other Go block of the app and the packages its JavaScript imports with `go:`: the Go of a Go module is one goesm program (`packages/vite/src/program.js`). On success it returns TypeScript and a source map per package; on failure it returns diagnostics at `.vue` positions.
+4. The synthetic Go is passed to `go tool goesm emit-ts -overlay` (§5) together with the synthetic Go of every other Go block of the app and the packages its JavaScript imports with `go:`: the Go of a Go module is one goesm program per environment (`packages/vite/src/program.js`): the browser's program leaves out the Go only the server runs (Go frontmatter, and the `go:` imports of `.astro` frontmatter and of the files the `serverOnly` option names), since goesm's output for a package depends on the whole program. On success it returns TypeScript and a source map per package; on failure it returns diagnostics at `.vue` positions.
 5. Only the Go block is replaced with the following `<script setup lang="ts">`. The template, `<style>`, `<style scoped>`, and a plain `<script>` are not changed by a single byte. The line count is preserved too, so the positions of later blocks do not shift.
 
    ```ts

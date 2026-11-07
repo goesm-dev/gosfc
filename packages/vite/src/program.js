@@ -8,7 +8,11 @@
 // interfaces, which function values block), so separate programs would each
 // emit, and run, their own copy of a package the components share, and with
 // it their own copy of its state. One program lowers each package once: a
-// package-level vue.Ref is one Ref for every component.
+// package-level vue.Ref is one Ref for every component. The plugin keeps one
+// program per environment (index.js): the browser and the server run their
+// own copies anyway, and the browser's program leaves out the Go only the
+// server runs, which would otherwise change the code of the packages they
+// share (keep methods, keep tables a server-only call needs).
 //
 // The program starts with the blocks and go: imports a scan of the app finds
 // (scanGoModule in compile.js), so that the first compilation is already the
