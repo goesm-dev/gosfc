@@ -23,7 +23,7 @@
 // watchers and computeds made with the vue package during setup re-run.
 
 import { computed, getCurrentInstance, shallowRef, triggerRef, useAttrs, watch } from "vue";
-import { fromGo, readProps } from "gosfc:convert.js";
+import { fromGo, propNames, propValue, readProps } from "gosfc:convert.js";
 
 /**
  * @param {(props?: any) => (name: string) => unknown} setup
@@ -51,22 +51,22 @@ export function useGo(setup, _version, props, defaults, declared) {
     if (inst) inst.gosfcProps = propsVersion;
     // The fields arrive as the declared props; a field also takes an
     // attribute spelled as its Go name (Size="3").
-    const source = () => (declared ? { ...attrs, ...declared } : attrs);
-    lookup = setup(readProps(zero, source(), defaults));
+    lookup = setup(readProps(zero, attrs, defaults, declared));
     const setProps = lookup("gosfc:props");
-    // attrs is reactive but not deeply: read every key so that a prop added,
-    // removed or replaced is noticed.
-    watch(
-      () => {
-        const s = source();
-        return Object.keys(s).map((k) => s[k]);
-      },
-      () => {
-        setProps(readProps(zero, source(), defaults));
-        triggerRef(propsVersion);
-        changed();
-      },
-    );
+    // Reading the fields' values is enough to see a prop added, removed or
+    // replaced: any read of attrs depends on all of them. Other attributes
+    // (class, listeners) do not change the props, so the Go side is told
+    // only when a field's value is another.
+    const names = propNames(zero);
+    const values = () => names.map((n) => propValue(n, attrs, declared));
+    let last = values();
+    watch(values, (now) => {
+      if (now.length === last.length && now.every((v, i) => Object.is(v, last[i]))) return;
+      last = now;
+      setProps(readProps(zero, attrs, defaults, declared));
+      triggerRef(propsVersion);
+      changed();
+    });
   } else {
     lookup = setup();
   }

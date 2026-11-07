@@ -51,21 +51,60 @@ export function fromGo(x, changed = noop) {
   };
 }
 
+// The names a field's prop arrives under, by the field keys of a zero Props
+// value: the key itself, the name Vue normalizes the declared name to
+// (camelize, so a json tag such as "display-name" is the prop displayName),
+// and its kebab-case spelling. Components of one type share their keys.
+const namesCache = new Map();
+
+/**
+ * @param {Record<string, unknown>} zero
+ * @returns {[string, string, string][]} [key, name, kebab] for each field
+ */
+export function propNames(zero) {
+  const keys = Object.keys(zero);
+  const id = keys.join("\0");
+  let names = namesCache.get(id);
+  if (!names) {
+    names = keys.map((key) => {
+      const name = key.replace(/^[A-Z]+(?=[A-Z][a-z]|$)|^[A-Z]/, (s) => s.toLowerCase()).replace(/-(\w)/g, (_, c) => c.toUpperCase());
+      return [key, name, name.replace(/[A-Z]/g, (c) => "-" + c.toLowerCase())];
+    });
+    namesCache.set(id, names);
+  }
+  return names;
+}
+
+/**
+ * The value given for a field under one of its names, or undefined. The
+ * declared props take precedence over the attributes.
+ * @param {[string, string, string]} n
+ * @param {Record<string, unknown>} attrs
+ * @param {Record<string, unknown>} [declared]
+ */
+export function propValue([key, name, kebab], attrs, declared) {
+  for (const k of [key, name]) {
+    if (declared && k in declared) return declared[k];
+    // Vue tracks a read of attrs, not an `in`: read first.
+    const v = attrs[k];
+    if (v !== undefined || k in attrs) return v;
+  }
+  return declared && kebab in declared ? declared[kebab] : attrs[kebab];
+}
+
 /**
  * Builds the props object of a block from props given by name. A prop that
  * is not given takes the field's `default:"..."` tag, if it has one.
  * @param {Record<string, unknown>} zero the block's zero Props value, as JavaScript sees it
  * @param {Record<string, unknown>} attrs
  * @param {Record<string, string>} [defaults] the `default` tags, by key
+ * @param {Record<string, unknown>} [declared] the declared props, which take precedence over attrs
  */
-export function readProps(zero, attrs, defaults = {}) {
+export function readProps(zero, attrs, defaults = {}, declared) {
   const props = { ...zero };
-  for (const key of Object.keys(zero)) {
-    // As Vue normalizes the declared name (camelize), so a json tag such as
-    // "display-name" is the prop displayName.
-    const name = key.replace(/^[A-Z]+(?=[A-Z][a-z]|$)|^[A-Z]/, (s) => s.toLowerCase()).replace(/-(\w)/g, (_, c) => c.toUpperCase());
-    const kebab = name.replace(/[A-Z]/g, (c) => "-" + c.toLowerCase());
-    const a = key in attrs ? attrs[key] : name in attrs ? attrs[name] : attrs[kebab];
+  for (const n of propNames(zero)) {
+    const key = n[0];
+    const a = propValue(n, attrs, declared);
     if (a !== undefined) props[key] = propToGo(zero[key], a);
     else if (key in defaults) props[key] = defaultToGo(zero[key], defaults[key]);
   }
