@@ -97,6 +97,22 @@ export async function compileSfc(code, filename, opts) {
   const tagOffset = code.lastIndexOf("<script", block.loc.start.offset);
   const vb = vueBlock(code, filename, descriptor, opts.root);
   const { importPath, synth, res, goFiles } = await compileGoBlock({ ...vb, lower: opts.lower });
+  const unknown = await undeclaredReads(vb.scope, synth, descriptor);
+  if (unknown.length) {
+    throw new GosfcError(
+      unknown.map(({ name, offset }) =>
+        withFrame(
+          {
+            file: filename,
+            ...lineCol(code, offset),
+            message: `${name} is not declared: it is not a top-level name of the Go block, a prop, a variable of the template (v-for, v-slot) or a global Vue allows, so Vue would read it as undefined`,
+          },
+          code,
+        ),
+      ),
+      opts.root,
+    );
+  }
   // Only a block whose package has async functions can block (blocking.js,
   // loaded then: it parses goesm's output with Vite's parser).
   if (/\basync\b/.test(res.modules.find((m) => m.importPath === importPath)?.code ?? "")) {
@@ -128,10 +144,12 @@ export async function compileSfc(code, filename, opts) {
     ? [
         "",
         `import { GosfcSetup as __gosfc_setup, GosfcProps as __gosfc_props } from ${JSON.stringify("go:" + importPath)};`,
-        `import { useGo as __gosfc_useGo } from ${JSON.stringify(RUNTIME_ID)};`,
+        `import { useGo as __gosfc_useGo, propOptions as __gosfc_propOptions } from ${JSON.stringify(RUNTIME_ID)};`,
         // The Props fields are declared as Vue props, so that the other
-        // attributes (class, style, listeners) fall through to the root element.
-        `const __gosfc_in = defineProps(${JSON.stringify(propNames(synth))});`,
+        // attributes (class, style, listeners) fall through to the root
+        // element: a bool field as a Boolean prop, a field with a default
+        // tag with its default (the bridge reads the zero Props value).
+        `const __gosfc_in = defineProps(__gosfc_propOptions(__gosfc_props, ${JSON.stringify(propNames(synth))}${defaultsArg(synth)}));`,
         `const __gosfc = __gosfc_useGo(__gosfc_setup, ${version}, __gosfc_props${defaultsArg(synth) || ", undefined"}, __gosfc_in);`,
       ]
     : [
@@ -140,6 +158,9 @@ export async function compileSfc(code, filename, opts) {
         `import { useGo as __gosfc_useGo } from ${JSON.stringify(RUNTIME_ID)};`,
         `const __gosfc = __gosfc_useGo(__gosfc_setup, ${version});`,
       ];
+  // What the block exposes with vue.Expose (an empty object closes the
+  // instance, as a <script setup> without defineExpose does).
+  glue.push("defineExpose(__gosfc.exposed);");
   const bindings = (synth.bindings ?? []).filter((b) => !vb.used || vb.used.includes(b.name));
   glue.push(...bindings.map((b) => `const ${b.name} = __gosfc.binding(${JSON.stringify(b.name)});`));
   // Keep the line count so positions after the block do not move.
@@ -154,6 +175,62 @@ export async function compileSfc(code, filename, opts) {
     runtime: res.runtime,
     goFiles,
   };
+}
+
+/**
+ * The names the template reads from the component that nothing declares:
+ * not a binding of the Go block, a prop, a top-level name of a plain
+ * <script>, or one of the component's own $ properties ($attrs, $slots,
+ * $emit, and the app's global properties, such as $t). Vue would read them
+ * as undefined. Empty when the template's reads cannot be told, or when a
+ * plain <script> has an export default (its options may declare anything).
+ * @param {ReturnType<typeof templateScope>} scope
+ * @param {SynthOutput} synth
+ * @param {import("@vue/compiler-sfc").SFCDescriptor} descriptor
+ * @returns {Promise<{ name: string, offset: number }[]>}
+ */
+async function undeclaredReads(scope, synth, descriptor) {
+  if (!scope?.reads.length) return [];
+  const known = new Set((synth.bindings ?? []).map((b) => b.name));
+  for (const [, name] of propFields(synth)) known.add(name);
+  const script = descriptor.script;
+  if (script && !script.src) {
+    const { parseAst } = await import("vite");
+    let ast;
+    try {
+      ast = parseAst(script.content, { lang: script.lang === "tsx" || script.lang === "jsx" ? script.lang : "ts" });
+    } catch {
+      return []; // the Vue tooling reports the plain <script>'s errors
+    }
+    for (const st of ast.body) {
+      const d = st.type === "ExportNamedDeclaration" && st.declaration ? st.declaration : st;
+      if (st.type === "ExportDefaultDeclaration") return [];
+      if (d.type === "ImportDeclaration") for (const sp of d.specifiers) known.add(sp.local.name);
+      if ((d.type === "FunctionDeclaration" || d.type === "ClassDeclaration" || d.type === "TSEnumDeclaration") && d.id) known.add(d.id.name);
+      if (d.type === "VariableDeclaration") for (const v of d.declarations) for (const n of patternNames(v.id)) known.add(n);
+    }
+  } else if (script?.src) {
+    return [];
+  }
+  return scope.reads.filter((r) => !known.has(r.name) && !r.name.startsWith("$"));
+}
+
+/** The names a destructuring pattern (or an identifier) declares. */
+function patternNames(p) {
+  if (!p) return [];
+  switch (p.type) {
+    case "Identifier":
+      return [p.name];
+    case "ObjectPattern":
+      return p.properties.flatMap((q) => patternNames(q.type === "RestElement" ? q.argument : q.value));
+    case "ArrayPattern":
+      return p.elements.flatMap((e) => patternNames(e));
+    case "RestElement":
+      return patternNames(p.argument);
+    case "AssignmentPattern":
+      return patternNames(p.left);
+  }
+  return [];
 }
 
 /**
@@ -313,6 +390,7 @@ export async function compileAstroScript(filename, index, opts) {
 /** The Go block of a .vue file, for compileGoBlock. */
 function vueBlock(code, filename, descriptor, root) {
   const block = descriptor.scriptSetup;
+  const scope = templateScope(descriptor, filename);
   return {
     code,
     filename,
@@ -321,7 +399,8 @@ function vueBlock(code, filename, descriptor, root) {
     tagOffset: code.lastIndexOf("<script", block.loc.start.offset),
     pkgName: packageName(filename),
     root,
-    used: templateNames(descriptor, filename),
+    used: scope?.names ?? null,
+    scope,
   };
 }
 
@@ -336,6 +415,20 @@ function vueBlock(code, filename, descriptor, root) {
  * @returns {string[] | null}
  */
 export function templateNames(descriptor, filename) {
+  return templateScope(descriptor, filename)?.names ?? null;
+}
+
+/**
+ * What the template reads from the component (templateNames), and where:
+ * the identifiers the compiled template reads from the component's context
+ * (_ctx.x), each once by its offset in the .vue file. Built-in names of
+ * the template's own scope (v-for and slot variables, $event) and the
+ * globals Vue allows (Math, Date, ...) are not read from the context.
+ * @param {import("@vue/compiler-sfc").SFCDescriptor} descriptor
+ * @param {string} filename
+ * @returns {{ names: string[], reads: { name: string, offset: number }[] } | null}
+ */
+export function templateScope(descriptor, filename) {
   const t = descriptor.template;
   if (!t || t.src || (t.lang && t.lang !== "html")) return null;
   const r = compileTemplate({ source: t.content, filename, id: "gosfc", compilerOptions: { prefixIdentifiers: true } });
@@ -357,8 +450,34 @@ export function templateNames(descriptor, filename) {
   };
   if (t.ast) walk(t.ast);
   for (const v of descriptor.cssVars) for (const m of v.matchAll(ident)) names.add(m[0]);
-  return [...names].sort();
+
+  // The compiled expressions hold the context reads as simple expressions
+  // _ctx.x, at the position of x in the template.
+  const base = t.loc.start.offset;
+  /** @type {Map<number, string>} */
+  const reads = new Map();
+  const seen = new Set();
+  const find = (n) => {
+    if (!n || typeof n !== "object" || seen.has(n)) return;
+    seen.add(n);
+    if (Array.isArray(n)) {
+      for (const c of n) find(c);
+      return;
+    }
+    const m = n.type === 4 && typeof n.content === "string" && n.loc && CTX_READ.exec(n.content);
+    if (m) reads.set(base + n.loc.start.offset, m[1]);
+    for (const k of Object.keys(n)) if (k !== "loc" && k !== "parent" && k !== "codegenNode") find(n[k]);
+    find(n.codegenNode);
+  };
+  find(r.ast);
+  return {
+    names: [...names].sort(),
+    reads: [...reads].sort((a, b) => a[0] - b[0]).map(([offset, name]) => ({ name, offset })),
+  };
 }
+
+// _ctx.x, or the handler @click="x" of an element: _ctx.x && _ctx.x(...args).
+const CTX_READ = /^_ctx\.([\p{L}_$][\p{L}\p{N}_$]*)(?: && _ctx\.\1\(\.\.\.args\))?$/u;
 
 /** The Go frontmatter of an .astro file, for compileGoBlock. */
 function frontmatterBlock(code, filename, fm, root) {
@@ -472,7 +591,7 @@ function goScripts(code, from) {
 }
 
 /**
- * @typedef {{ go: string, bindings: {name: string, kind: string, line: number, column: number}[], diagnostics: {line: number, column: number, message: string}[], props: boolean, propDefaults?: Record<string, string>, jsImports: {name: string, path: string}[], usesAstro?: boolean, astroExports?: {name: string, func?: string, value?: string}[] }} SynthOutput
+ * @typedef {{ go: string, bindings: {name: string, kind: string, line: number, column: number}[], diagnostics: {line: number, column: number, message: string}[], props: boolean, propKeys?: string[], propDefaults?: Record<string, string>, emits?: string[], jsImports: {name: string, path: string}[], usesAstro?: boolean, astroExports?: {name: string, func?: string, value?: string}[] }} SynthOutput
  */
 
 /**

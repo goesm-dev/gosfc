@@ -171,11 +171,46 @@ test("Go syntax errors and unused imports are reported at the .vue position", as
   assert.match(e2.message, /src\/TmpUnused\.vue:3:8: "strings" imported and not used \[go\/types\]/);
 });
 
-test("gosfc-level errors: methods, JS reserved words, <script lang=go>", async () => {
-  const methods = `<script setup lang="go">\ntype T struct{}\n\nfunc (T) M() {}\n</script>\n`;
-  let e = await compileError(component("TmpMethod.vue", methods), methods);
-  assert.match(e.message, /src\/TmpMethod\.vue:4:1: methods cannot be declared/);
+test("types and methods declared in the Go block, used by Props", async () => {
+  const source = `<template>
+  <p>{{ label }} {{ Next() }}</p>
+</template>
 
+<script setup lang="go">
+import "strings"
+
+type Tag string
+
+func (t Tag) Label() string { return "#" + strings.ToUpper(string(t)) }
+
+type Level int
+
+type Props struct {
+	Tag   Tag
+	Level Level
+}
+
+func (p Props) Higher() Level { return p.Level + 1 }
+
+label := props.Tag.Label()
+
+func Next() Level { return props.Higher() }
+</script>
+`;
+  const file = component("TmpBlockTypes.vue", source);
+  const r = await compileSfc(source, file, { root: app });
+  const setup = r.modules.find((m) => m.importPath.endsWith("/tmpblocktypes_vue"));
+  assert.ok(setup, "synthetic package was not lowered");
+  // The methods map back to the .vue file.
+  assert.deepEqual(setup.map.sources, [file]);
+
+  const outside = `<template><p>{{ n }}</p></template>\n<script setup lang="go">\ntype T int\n\nn := 1\n\nfunc (T) M() int { return n }\n</script>\n`;
+  const e = await compileError(component("TmpMethodScope.vue", outside), outside);
+  assert.match(e.message, /src\/TmpMethodScope\.vue:7:27: undefined: n \[go\/types\]/);
+});
+
+test("gosfc-level errors: JS reserved words, <script lang=go>", async () => {
+  let e;
   const reserved = `<script setup lang="go">\nnew := 1\n</script>\n`;
   e = await compileError(component("TmpReserved.vue", reserved), reserved);
   assert.match(e.message, /src\/TmpReserved\.vue:2:1: new is a reserved word in JavaScript/);
@@ -183,6 +218,47 @@ test("gosfc-level errors: methods, JS reserved words, <script lang=go>", async (
   const plain = `<script lang="go">\nx := 1\n</script>\n`;
   e = await compileError(component("TmpPlain.vue", plain), plain);
   assert.match(e.message, /<script lang="go"> is not supported/);
+});
+
+test("a name the template reads that nothing declares is an error at its template position", async () => {
+  const source = `<template>
+  <div v-if="missing" :title="label" @click="Pick($event, $attrs.x)">
+    <p v-for="(it, i) in items" :key="i">{{ it }} {{ Math.max(i, n) }} {{ shared }} {{ fromTs }}</p>
+    <Comp v-slot="{ row }">{{ row }} {{ $slots }} {{ props.Label }}</Comp>
+    <p>{{ other.field }}</p>
+    <button @click="Pick" @dblclick="Unpick">x</button>
+  </div>
+</template>
+
+<script lang="ts">
+import { ref as fromTs } from "vue";
+export const shared = 1;
+</script>
+
+<script setup lang="go">
+type Props struct {
+	Label string
+}
+
+items := []int{1}
+n := 2
+
+func Pick() {}
+</script>
+`;
+  const file = component("TmpUndeclared.vue", source);
+  const e = await compileError(file, source);
+  assert.equal(e.name, "GosfcError");
+  const lines = e.message.split("\n").filter((l) => l.startsWith("src/"));
+  assert.deepEqual(
+    lines.map((l) => l.slice(0, l.indexOf(" is not declared"))),
+    ["src/TmpUndeclared.vue:2:14: missing", "src/TmpUndeclared.vue:5:11: other", "src/TmpUndeclared.vue:6:38: Unpick"],
+  );
+  assert.match(lines[0], /not a top-level name of the Go block, a prop, a variable of the template \(v-for, v-slot\) or a global Vue allows/);
+
+  // A plain <script> with options (export default) may declare anything.
+  const options = `<template><p>{{ fromOptions }}</p></template>\n<script lang="ts">\nexport default { data: () => ({ fromOptions: 1 }) };\n</script>\n<script setup lang="go">\nn := 1\n_ = n\n</script>\n`;
+  await compileSfc(options, component("TmpOptions.vue", options), { root: app });
 });
 
 test("a Go block that blocks in the setup is an error naming the calls that block", async () => {

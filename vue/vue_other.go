@@ -27,11 +27,11 @@ func (c *Computed[T]) Get() T { return c.f() }
 
 // Watch calls cb with the new value each time src() returns a different
 // value. It returns a function that stops watching.
-func Watch[T comparable](src func() T, cb func(v T)) (stop func()) { return func() {} }
+func Watch[T any](src func() T, cb func(v T), opts ...WatchOption) (stop func()) { return func() {} }
 
 // WatchEffect runs f now and again each time a Ref or Computed it read
 // changes. It returns a function that stops watching.
-func WatchEffect(f func()) (stop func()) { return func() {} }
+func WatchEffect(f func(), opts ...WatchOption) (stop func()) { return func() {} }
 
 // OnMounted runs f once the component is in the page.
 func OnMounted(f func()) {}
@@ -49,3 +49,10 @@ func NextTick() {}
 // emit("changed") calls the parent's @changed handler, and
 // emit("update:modelValue", v) updates its v-model.
 func Emitter() func(event string, args ...any) { return func(string, ...any) {} }
+
+// Expose makes v a property name of the component's public instance, as
+// Vue's defineExpose does.
+func Expose(name string, v any) {}
+
+// sameJS: there are no js.Values outside goesm.
+func sameJS(a, b any) (eq, ok bool) { return false, false }

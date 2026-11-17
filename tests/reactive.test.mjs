@@ -13,7 +13,7 @@ import { createServer } from "vite";
 const root = fileURLToPath(new URL("./fixtures/app/", import.meta.url));
 const chromium = process.env.CHROMIUM ?? "/opt/pw-browsers/chromium";
 
-test("vue package: Refs, Computeds, watchers, hooks, v-model, template refs, props and emits", { skip: !existsSync(chromium) && "no Chromium" }, async (t) => {
+test("vue package: Refs, Computeds, watchers, hooks, v-model, template refs, function refs, props and emits", { skip: !existsSync(chromium) && "no Chromium" }, async (t) => {
   const { chromium: pw } = await import("playwright-core");
   const server = await createServer({ root, configFile: false, logLevel: "silent", plugins: [gosfc(), vue()], server: { port: 0 } });
   await server.listen();
@@ -65,6 +65,11 @@ test("vue package: Refs, Computeds, watchers, hooks, v-model, template refs, pro
   // Prop defaults: a field's default tag fills a prop the parent leaves out.
   assert.equal(await text(".child .size"), "20");
   assert.equal(await page.locator(".child .label").nth(1).textContent(), "defaults");
+  // The Vue props are typed: a bool field is a Boolean prop, so a bare
+  // attribute is true and a missing one false, and Vue applies the default
+  // tag (the template reads the Vue props open and size directly).
+  assert.equal(await page.locator(".child .vue-props").nth(0).textContent(), "false false 20");
+  assert.equal(await page.locator(".child .vue-props").nth(1).textContent(), "true true 20");
   // A prop whose json key is hyphenated.
   assert.equal(await page.locator(".child .note").nth(1).textContent(), "noted");
 
@@ -75,6 +80,29 @@ test("vue package: Refs, Computeds, watchers, hooks, v-model, template refs, pro
   // A Go function held by a Ref updates the bindings it changes.
   await page.click("button.bump");
   await waitText("button.bump", "1");
+
+  // A function ref calls Go while Vue patches the page: the call does not
+  // render the component again, which would call the ref again, forever.
+  assert.equal(await text(".fref-calls"), "0");
+  assert.equal(await text(".fref-tags"), "[]");
+  await page.click("button.fref-bump");
+  await waitText("button.fref-bump", "1");
+  assert.equal(await text(".fref-calls"), "1");
+  assert.equal(await text(".fref-tags"), '[\n  "P"\n]');
+  await page.click("button.fref-bump");
+  await waitText("button.fref-bump", "2");
+  assert.equal(await text(".fref-calls"), "2");
+
+  // vue.Expose: the parent calls what the child exposes through its template
+  // ref; a Ref reads as its value. Watchers run as their flush option says,
+  // and a js.Value is a watch source.
+  assert.equal(await text(".exp-el"), "SPAN");
+  await page.click("button.use-exposed");
+  await waitText("button.use-exposed", "exposer:++");
+  await waitText(".exp-count", "2");
+  await waitText(".exp-post", "2");
+  assert.equal(await text(".exp-pre"), "1");
+  assert.equal(await text(".exp-sync"), "2");
 
   assert.deepEqual(errors, []);
 });
