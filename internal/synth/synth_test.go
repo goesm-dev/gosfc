@@ -460,3 +460,68 @@ func TestJSImportErrors(t *testing.T) {
 		t.Errorf("a .vue block took a JavaScript import: %+v", out)
 	}
 }
+
+// A Go frontmatter reads Astro's global as Astro, which the setup function
+// takes after the props, and declares the page's exports by Go names.
+func TestAstroFrontmatter(t *testing.T) {
+	src := `
+import "github.com/goesm-dev/gosfc/astro"
+
+const Prerender = false
+
+const (
+	Partial = true
+	other   = 1
+)
+
+type Props struct{ Title string }
+
+func GetStaticPaths() []astro.StaticPath { return nil }
+
+slug := Astro.Param("slug")
+`
+	astroIn := func(src string) Output {
+		return Build(Input{File: "/app/src/pages/[slug].astro", Package: "slug_astro", Source: src, Line: 2, Column: 1, TagLine: 1, TagCol: 1, Block: "the Go frontmatter", JSImports: true, Astro: true})
+	}
+	out := astroIn(src)
+	if len(out.Diagnostics) > 0 {
+		t.Fatalf("%+v", out.Diagnostics)
+	}
+	if !out.UsesAstro {
+		t.Error("UsesAstro is false")
+	}
+	want := []AstroExport{{Name: "prerender", Value: "false"}, {Name: "partial", Value: "true"}, {Name: "getStaticPaths", Func: "GetStaticPaths"}}
+	if !reflect.DeepEqual(out.AstroExports, want) {
+		t.Errorf("exports %+v, want %+v", out.AstroExports, want)
+	}
+	for _, w := range []string{
+		`import gosfcastro "github.com/goesm-dev/gosfc/astro"`,
+		"func GosfcSetup(props Props, gosfcAstro gosfcjs.Value) func(string) any {\nAstro := gosfcastro.Context{Value: gosfcAstro}",
+	} {
+		if !strings.Contains(out.Go, w) {
+			t.Errorf("missing %q in\n%s", w, out.Go)
+		}
+	}
+	// GetStaticPaths is a function of the package, not of the setup.
+	if i, j := strings.Index(out.Go, "func GetStaticPaths()"), strings.Index(out.Go, "func GosfcSetup("); i < 0 || i > j {
+		t.Errorf("GetStaticPaths is not declared at package level:\n%s", out.Go)
+	}
+	if got := names(out.Bindings); !reflect.DeepEqual(got, []string{"Prerender", "Partial", "other", "props", "slug"}) {
+		t.Errorf("bindings %v", got)
+	}
+
+	// Without Astro, the setup takes no Astro; a .vue block exports nothing.
+	out = astroIn("\nn := 1\n")
+	if out.UsesAstro || strings.Contains(out.Go, "gosfcastro") {
+		t.Errorf("Astro without a use:\n%s", out.Go)
+	}
+	if out = build(t, "\nfunc GetStaticPaths() int { return 1 }\n\nconst Prerender = true\n"); len(out.AstroExports) > 0 {
+		t.Errorf("exports of a .vue block: %+v", out.AstroExports)
+	}
+
+	// Astro reads prerender as a literal.
+	out = astroIn("\nconst Prerender = 1 == 1\n")
+	if len(out.Diagnostics) != 1 || !strings.Contains(out.Diagnostics[0].Message, "const Prerender = true (or false)") {
+		t.Errorf("%+v", out.Diagnostics)
+	}
+}

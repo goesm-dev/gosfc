@@ -38,6 +38,8 @@ Astro ─────────────── routing / SSR / SSG / island
 
 ```
 cmd/gosfc/          Go 側の CLI（`gosfc synth`）。アプリの go.mod に tool として入る
+vue/, astro/        アプリが使う Go のパッケージ。vue はコンポーネントのリアクティビティ・フック・emit、
+                    astro は Astro のグローバルとエンドポイント・ミドルウェアのコンテキスト
 internal/synth/     <script setup lang="go"> と .astro の Go → synthetic Go（go/scanner のみ使用）
 packages/vite/      @gosfc/vite: Vite plugin。src/compile.js が SFC と .astro の変換の中心、
                     src/program.js がアプリの Go を環境ごとに 1 つの goesm プログラムにまとめる、
@@ -49,7 +51,7 @@ packages/vite/      @gosfc/vite: Vite plugin。src/compile.js が SFC と .astro
 packages/astro/     @gosfc/astro: @gosfc/vite（と、インストールされていれば @astrojs/vue）を設定するだけの integration。
                     @gosfc/vite の Vue の言語プラグインも再エクスポートする。src/index.d.ts がその型
 examples/astro/     PoC（Astro → Vue → gosfc → goesm → Vite）と Go で書いた .astro のページ
-examples/astro-go/  Vue をインストールせず、Go を .astro ファイルだけに書く例
+examples/astro-go/  Vue をインストールせず、Go を .astro ファイルだけに書く例（Go で書いたエンドポイントとミドルウェアも含む）
 tests/              Node のテスト（Astro build、Vite build / SSR / HMR、診断）と fixture
 ```
 
@@ -187,6 +189,9 @@ goesm 側の変更はこの PoC のために 1 つだけです：`build` / `emit
   ```
 
   `runtime/astro.js` はレンダリングごとに setup を 1 回実行し、ブロックする setup はその完了を待ちます。`Props` には Vue のブリッジと同じ規則（`runtime/convert.js`）で `Astro.props` を入れ、値は同じ ABI で変換されます。Astro はテンプレートを 1 回しかレンダリングしないので、リアクティビティはありません。パッケージのインポートには `go:` ではなく内容から決まる仮想 ID を使います。`.vue` 以外のモジュールから `go:` でインポートすると、パッケージが overlay なしでコンパイルされるためです。
+
+  synth にはブロックがフロントマターであること（`astro`）を伝えます。ブロックが識別子 `Astro` を読むと、setup 関数は最後の引数として Astro のグローバルを受け取り（ABI がそのまま渡す `js.Value`）、最初に `Astro := astro.Context{Value: ...}`（このモジュールのパッケージ `astro`）を宣言します。フロントマターは `Astro` を渡し、`Astro.Respond` がグローバルの `Symbol.for("gosfc.response")` に残した Response を返します。ページのエクスポートは Go の名前で書きます（`AstroExport`）。`func GetStaticPaths` はパッケージレベルで宣言され、goesm がエクスポートし、フロントマターが `getStaticPaths` として再エクスポートします。リテラルの `const Prerender` / `const Partial` は `export const prerender = ...` になります。Astro は `prerender` をプラグインが動く前にディスク上のファイルから読むので、`@gosfc/astro` は `astro:route:setup` フックで Go のフロントマターから `route.prerender` も設定します（`goPrerender`）。
+* **Go で書いたエンドポイントとミドルウェア。** `@gosfc/astro` のオプション `routes` と `middleware` は Go のパッケージを指定します。インテグレーションはそれぞれについて、パッケージを再エクスポートするモジュール（`export * from "go:..."`、`GetStaticPaths` を `getStaticPaths` に、`OnRequest` を `onRequest` に）を `.astro/` の自分のディレクトリ（`createCodegenDir`）に書き、`injectRoute` か `addMiddleware` に渡します。Astro はルートのファイルを読むので、仮想モジュールではなくファイルにしています。その `go:` インポートは、プラグインがほかと同じくプロジェクトの Go モジュールでコンパイルします。
 * **クライアントスクリプト。** `<script lang="go">` はそれぞれ `<script>import "gosfc:astro-script/<n>/<file>.js"</script>` になり、Astro からは処理対象の普通のスクリプトに見えます。Astro はクライアントを専用の Vite の環境でビルドするので、ID にファイルと番号を含めています。この ID を読み込むと、`.astro` ファイルを読み直し、n 番目の Go のスクリプトをプログラムのほかの部分と一緒にコンパイルし、`import { GosfcSetup } from "<id>"; GosfcSetup();` を返します。SSR の環境では Astro がスクリプトを読み込まず、クライアントの環境では `.astro` のモジュールを書き換えません。クライアントの環境の `.astro` のモジュールは Astro がスタブに置き換えるためです。
 * Vite の依存関係スキャナーは `.astro` の `<script>` 要素を TypeScript として読みます。Go を含むファイルについては、代わりに Go のフロントマターと他のスクリプトの JavaScript のインポートを見せます。
 

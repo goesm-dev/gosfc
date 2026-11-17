@@ -196,6 +196,28 @@ func Yen(n int) string {
 * `type Props struct {...}` を宣言すると `Astro.props` を受け取れます。フィールド名と props の名前の対応は `.vue` の Go ブロックと同じで、フィールド `Label` は `label` から読みます。
 * テンプレートに渡る値は JavaScript 向けに変換されます。文字列は JavaScript の文字列、スライスは配列、struct はオブジェクトになります。テンプレートから Go の関数を呼ぶこともできます。
 * チャネルや `time.Sleep` などで Go のコードがブロックする場合、フロントマターはその完了を待ちます。
+* JavaScript のモジュールの名前付きエクスポートは、Vue コンポーネントと同じく goesm の [`//goesm:import`](https://github.com/goesm-dev/goesm/blob/main/docs/js-imports.ja.md) で取り込みます。`func getCollection(name string) (js.Value, error)` の前に `//goesm:import "astro:content" getCollection await` と書きます。値なら `var` の前に書きます。
+* `Astro` は Astro のグローバルで、パッケージ `github.com/goesm-dev/gosfc/astro` の `astro.Context` です。グローバルの `js.Value` に、型付きのアクセサー `Param("slug")`、`Params()`、`URL()`（`*url.URL`）、`Site()`、`Props()`、`Request()`、`Locals()`、`Cookies()` が付いています。`Astro.Respond(Astro.Redirect("/login", 302))` と書くと、`return Astro.redirect(...)` と同じく、ページはテンプレートの代わりにその Response を返します（フロントマターは最後まで実行されます）。
+* ページのエクスポートは Go の名前で宣言します。`func GetStaticPaths() []astro.StaticPath` は `getStaticPaths` です。これはパッケージレベルで宣言されます（Astro はレンダリングの外で呼ぶので、フロントマターの変数は見えません）。`astro.StaticPath` にはルートの `Params` とページの `Props` を入れ、`Props` は `type Props struct` で読みます。`const Prerender = false` と `const Partial = true` は `prerender` と `partial` で、値はリテラルの `true` か `false` です。
+
+```astro
+---go
+// src/pages/posts/[slug].astro
+import (
+	"strings"
+
+	"github.com/goesm-dev/gosfc/astro"
+)
+
+func GetStaticPaths() []astro.StaticPath {
+	return []astro.StaticPath{{Params: map[string]string{"slug": "hello-world"}}}
+}
+
+title := strings.ReplaceAll(Astro.Param("slug"), "-", " ")
+---
+
+<h1>{title}</h1>
+```
 
 テンプレートの中の `<script lang="go">` は、ブラウザでページごとに 1 回実行される Go です。Astro が処理する通常の `<script>` と同じように Astro がバンドルし、コンポーネントを何度使ってもページに含まれるのは 1 回だけです。トップレベルの名前はテンプレートから参照できません。DOM の操作には `syscall/js` を使います。
 
@@ -218,11 +240,23 @@ button.Call("addEventListener", "click", js.FuncOf(func(this js.Value, args []js
 </script>
 ```
 
+エンドポイントとミドルウェアも、TypeScript のファイルなしで Go のパッケージとして書けます。`@gosfc/astro` のオプションに書きます。
+
+```js
+// astro.config.mjs
+gosfc({
+  routes: { "/api/[id].json": "example.com/app/src/api" }, // または { package: "...", prerender: false }
+  middleware: "example.com/app/src/server",                // またはその配列
+});
+```
+
+* ルートのパッケージは、エンドポイントのメソッドを Go の関数としてエクスポートします（`func GET(ctx js.Value) (js.Value, error)` が `Response` を返します）。プリレンダーする動的ルートなら `GetStaticPaths` もエクスポートします。
+* ミドルウェアのパッケージは `func OnRequest(ctx, next js.Value) (js.Value, error)` をエクスポートします。これは `src/middleware` のミドルウェアより先に動きます。残りのチェーンは `promise.Await(next.Invoke())`（goesm のパッケージ `github.com/goesm-dev/goesm/promise`）で待ちます。
+* `astro.Context{Value: ctx}` で、コンテキストに `Astro` と同じアクセサーが付きます。[examples/astro-go](examples/astro-go) に、Go で書いたページ、エンドポイント、ミドルウェアがあります。
+* `@gosfc/astro` は、各パッケージを再エクスポートするモジュールを `.astro/integrations/_gosfc_astro/` に書き、Astro に渡します（`injectRoute`、`addMiddleware`）。
+
 制限は次のとおりです。
 
-* Go のフロントマターは何もエクスポートできません。`getStaticPaths` などのエクスポートには TypeScript のフロントマターが必要です。TypeScript のフロントマターからも、次の節で説明する `go:` specifier で Go をインポートできます。
-* Go のコードから使える `Astro` グローバルの情報は props だけです。`Astro.url`、`Astro.cookies`、リダイレクトなどを使うには TypeScript のフロントマターを書きます。
-* Go のインポート構文で書けるのは default インポートと副作用のためのインポートだけです。JavaScript のモジュールの名前付きエクスポートを使うには、それを default エクスポートとして再エクスポートする小さなモジュールを作り、そのモジュールをインポートします。
 * `<script lang="go">` には他の属性を付けられません。`is:inline` や `define:vars` も使えません。
 
 ## JavaScript から Go をインポートする
@@ -239,6 +273,8 @@ export function getStaticPaths() {
 }
 ---
 ```
+
+Go の関数は結果をそのまま JavaScript に返します。Promise を返すのは、goesm がその関数がブロックしうると判断したときだけです。チャネル、ミューテックス、`time.Sleep`、インポートした Promise を待つ関数と、それらを呼ぶ関数がそうです。インターフェースのメソッドや関数値を通した呼び出しも、プログラムの中にブロックする実装が 1 つでもあれば含まれます。サーバーのプログラムはすべてのフロントマター、エンドポイント、ミドルウェアの Go からなるので、そのどれかでブロックする関数値があると、同じ型の値を通した呼び出しはどれも非同期になります。
 
 これらの import には TypeScript の型が付きます。goesm v0.0.1-beta.8 以降では、goesm がエクスポートの宣言ファイルを書き出します (`goesm emit-ts -dts`)。gosfc はそれをもとに、JavaScript が `go:` で import する各パッケージをモジュールとして宣言します。
 

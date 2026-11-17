@@ -236,7 +236,16 @@ export async function compileAstro(code, filename, opts) {
         ? `import { GosfcSetup as __gosfc_setup, GosfcProps as __gosfc_props } from ${JSON.stringify(id)};`
         : `import { GosfcSetup as __gosfc_setup } from ${JSON.stringify(id)};`,
       `import { runGo as __gosfc_run } from ${JSON.stringify(ASTRO_RUNTIME_ID)};`,
-      `const __gosfc = await __gosfc_run(__gosfc_setup, ${synth.props ? "__gosfc_props" : "null"}, Astro.props${defaultsArg(synth)});`,
+      // The page's exports: functions of the package, and literals Astro
+      // reads from the source.
+      ...(synth.astroExports ?? []).map((e) =>
+        e.func ? `export { ${e.func} as ${e.name} } from ${JSON.stringify(id)};` : `export const ${e.name} = ${e.value};`,
+      ),
+      synth.usesAstro
+        ? `const __gosfc = await __gosfc_run(__gosfc_setup, ${synth.props ? "__gosfc_props" : "null"}, Astro.props, ${defaultsArg(synth).slice(2) || "undefined"}, Astro);`
+        : `const __gosfc = await __gosfc_run(__gosfc_setup, ${synth.props ? "__gosfc_props" : "null"}, Astro.props${defaultsArg(synth)});`,
+      // A response the Go gave with Astro.Respond is the page's answer.
+      ...(synth.usesAstro ? ['const __gosfc_response = Astro[Symbol.for("gosfc.response")]; if (__gosfc_response) return __gosfc_response;'] : []),
       ...bindings.map((bd) => `const ${bd.name} = __gosfc(${JSON.stringify(bd.name)});`),
     );
     s.overwrite(fm.fence, fm.fence + "---go".length, "---");
@@ -363,6 +372,7 @@ function frontmatterBlock(code, filename, fm, root) {
     root,
     block: "the Go frontmatter",
     jsImports: true,
+    astro: true,
   };
 }
 
@@ -409,6 +419,26 @@ function goFrontmatter(code, filename, root) {
   return { fence, contentOffset, content: code.slice(contentOffset, c.index), end: c.index + 3 };
 }
 
+/**
+ * The prerender option a Go frontmatter declares with `const Prerender =
+ * true` (or false), alone or in a const group, or undefined. Astro reads the
+ * option from the source of a page before it is compiled (it looks for
+ * `export const prerender = ...`), so @gosfc/astro reads it from the Go
+ * frontmatter for Astro.
+ * @param {string} code the source of an .astro file
+ * @returns {boolean | undefined}
+ */
+export function goPrerender(code) {
+  const m = GO_FENCE.exec(code);
+  if (!m) return undefined;
+  const close = /^---/gm;
+  close.lastIndex = m.index + m[0].length;
+  const c = close.exec(code);
+  const fm = code.slice(m.index + m[0].length, c ? c.index : code.length);
+  const p = /^[ \t]*(?:const[ \t]+)?Prerender[ \t]*=[ \t]*(true|false)[ \t]*(?:\/\/.*)?$/m.exec(fm);
+  return p ? p[1] === "true" : undefined;
+}
+
 /** End of an ordinary frontmatter, or 0. */
 function frontmatterEnd(code) {
   const m = /^\s*---/.exec(code);
@@ -442,7 +472,7 @@ function goScripts(code, from) {
 }
 
 /**
- * @typedef {{ go: string, bindings: {name: string, kind: string, line: number, column: number}[], diagnostics: {line: number, column: number, message: string}[], props: boolean, propDefaults?: Record<string, string>, jsImports: {name: string, path: string}[] }} SynthOutput
+ * @typedef {{ go: string, bindings: {name: string, kind: string, line: number, column: number}[], diagnostics: {line: number, column: number, message: string}[], props: boolean, propDefaults?: Record<string, string>, jsImports: {name: string, path: string}[], usesAstro?: boolean, astroExports?: {name: string, func?: string, value?: string}[] }} SynthOutput
  */
 
 /**
@@ -457,6 +487,7 @@ function goScripts(code, from) {
  *   root: string,
  *   block?: string,         // how the block is written, for messages
  *   jsImports?: boolean,    // imports of JavaScript modules are allowed
+ *   astro?: boolean,        // a Go frontmatter: it may read Astro and declare the page's exports
  *   bindings?: boolean,     // false: the bindings are not used (a client script)
  *   used?: string[] | null, // the names the template may reference (null: any)
  * }} BlockInput
@@ -504,6 +535,7 @@ export async function synthBlock(b) {
       tagColumn: tagPos.column,
       block: blockName,
       jsImports: !!b.jsImports,
+      astro: !!b.astro,
       used: b.used ?? null,
     }),
   });

@@ -5,7 +5,7 @@ import { rmSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { after, test } from "node:test";
 import { fileURLToPath } from "node:url";
-import { compileAstro, compileSfc } from "@gosfc/vite";
+import { compileAstro, compileSfc, goPrerender } from "@gosfc/vite";
 
 const app = fileURLToPath(new URL("./fixtures/app/", import.meta.url));
 const tmp = [];
@@ -280,6 +280,46 @@ println("hi")
   const clash = `---go\nimport Card "./Card.vue"\n\nCard := 2\n---\n`;
   const e2 = await compileAstro(clash, component("TmpClash.astro", clash), { root: app }).then(() => assert.fail("expected an error"), (e) => e);
   assert.match(e2.message, /src\/TmpClash\.astro:4:1: Card is also the name of the import of "\.\/Card\.vue"/);
+});
+
+test(".astro: a Go frontmatter reads Astro and declares the page's exports", async () => {
+  const source = `---go
+import "github.com/goesm-dev/gosfc/astro"
+
+const Prerender = true
+
+func GetStaticPaths() []astro.StaticPath {
+	return []astro.StaticPath{{Params: map[string]string{"slug": "a"}}}
+}
+
+slug := Astro.Param("slug")
+if slug == "" {
+	Astro.Respond(Astro.Redirect("/", 0))
+}
+---
+
+<p>{slug}</p>
+`;
+  const file = component("TmpAstroGlobal.astro", source);
+  const r = await compileAstro(source, file, { root: app });
+  const fm = r.code.slice(0, r.code.indexOf("\n---\n") + 5);
+  const id = "go:example.com/fixture/src/_gosfc/tmpastroglobal_astro";
+  assert.ok(fm.includes(`export { GetStaticPaths as getStaticPaths } from "${id}";`), fm);
+  // As Astro reads it from the source.
+  assert.match(fm, /^export const prerender = true;$/m);
+  // The setup takes Astro's global; a response the Go gives is the page's.
+  assert.match(fm, /const __gosfc = await __gosfc_run\(__gosfc_setup, null, Astro\.props, undefined, Astro\);/);
+  assert.match(fm, /const __gosfc_response = Astro\[Symbol\.for\("gosfc\.response"\)\]; if \(__gosfc_response\) return __gosfc_response;/);
+  assert.equal(r.code.split("\n").length, source.split("\n").length, "line count changed");
+  const setup = r.modules.find((m) => m.importPath.endsWith("/tmpastroglobal_astro"));
+  assert.match(setup.code, / as "GetStaticPaths"/);
+});
+
+test("goPrerender reads const Prerender of a Go frontmatter", () => {
+  assert.equal(goPrerender("---go\nconst Prerender = false\n---\n<p />\n"), false);
+  assert.equal(goPrerender("---go\nconst (\n\tPartial = true\n\tPrerender = true // on demand\n)\n---\n"), true);
+  assert.equal(goPrerender("---go\nn := 1\n---\nconst Prerender = true\n"), undefined);
+  assert.equal(goPrerender("---\nexport const prerender = false\n---\n"), undefined);
 });
 
 test("go: imports in comments and other strings import nothing", async () => {

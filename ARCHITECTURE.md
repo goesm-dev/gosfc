@@ -38,6 +38,8 @@ Astro ─────────────── routing / SSR / SSG / island
 
 ```
 cmd/gosfc/          The Go-side CLI (`gosfc synth`). Added to the app's go.mod as a tool
+vue/, astro/        Go packages for the app: vue (reactivity, hooks, emits of a component) and astro (Astro's
+                    global and the context of endpoints and middleware)
 internal/synth/     <script setup lang="go"> (and the Go of .astro files) → synthetic Go (uses only go/scanner)
 packages/vite/      @gosfc/vite: the Vite plugin. src/compile.js is the core of the SFC and .astro transforms,
                     src/program.js keeps the Go of the app as one goesm program per environment,
@@ -49,7 +51,7 @@ packages/vite/      @gosfc/vite: the Vite plugin. src/compile.js is the core of 
 packages/astro/     @gosfc/astro: an integration that only configures @gosfc/vite (+ @astrojs/vue if installed),
                     and re-exports its Vue language plugin; src/index.d.ts is its types
 examples/astro/     The PoC (Astro → Vue → gosfc → goesm → Vite), and an .astro page written in Go
-examples/astro-go/  Go in .astro files only, without Vue installed
+examples/astro-go/  Go in .astro files only, without Vue installed, with an endpoint and a middleware in Go
 tests/              Node tests (Astro build, Vite build / SSR / HMR, diagnostics) and fixtures
 ```
 
@@ -187,6 +189,9 @@ An `.astro` file whose frontmatter opens with `---go`, or that contains `<script
   ```
 
   `runtime/astro.js` runs the setup once per render and awaits it when it blocks, fills `Props` from `Astro.props` with the rules of the Vue bridge (`runtime/convert.js`), and gets the values converted by the same ABI. Astro renders a template once, so there is no reactivity. The package is imported by its content-addressed id rather than `go:`, because a `go:` import from a module that is not a `.vue` file compiles the package without the overlay.
+
+  synth is told that the block is a frontmatter (`astro`). When the block reads the identifier `Astro`, the setup function takes Astro's global as its last parameter (a `js.Value`, which the ABI passes as it is) and declares `Astro := astro.Context{Value: ...}` first (package `astro` of this module); the frontmatter passes `Astro`, and returns the Response `Astro.Respond` left on the global under `Symbol.for("gosfc.response")`. The exports of a page are Go names (`AstroExport`): `func GetStaticPaths` is declared at package level, where goesm exports it, and the frontmatter re-exports it as `getStaticPaths`; `const Prerender` / `const Partial` with a literal become `export const prerender = ...`. Astro reads `prerender` from the file on disk before any plugin runs, so `@gosfc/astro` also sets `route.prerender` in its `astro:route:setup` hook from the Go frontmatter (`goPrerender`).
+* **Endpoints and middleware in Go.** The `routes` and `middleware` options of `@gosfc/astro` name Go packages. For each, the integration writes a module to its directory of `.astro/` (`createCodegenDir`) that re-exports the package (`export * from "go:..."`, `getStaticPaths` from `GetStaticPaths`, `onRequest` from `OnRequest`), and gives it to `injectRoute` or `addMiddleware`. Astro reads a route's file, so it is a file rather than a virtual module; the plugin compiles its `go:` import like any other, in the project's Go module.
 * **Client scripts.** Each `<script lang="go">` becomes `<script>import "gosfc:astro-script/<n>/<file>.js"</script>`, an ordinary processed script to Astro. The id names the file and the index because Astro builds the client in a Vite environment of its own: loading the id re-reads the `.astro` file, compiles its n-th Go script with the rest of the program, and returns `import { GosfcSetup } from "<id>"; GosfcSetup();`. In the SSR environment Astro does not load scripts, and in the client environment `.astro` modules are not rewritten (Astro replaces them with a stub).
 * Vite's dependency scanner reads the `<script>` elements of `.astro` files as TypeScript; for a file with Go it is shown the JavaScript imports of the Go frontmatter and of the other scripts instead.
 
