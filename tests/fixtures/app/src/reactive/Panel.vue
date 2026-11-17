@@ -16,6 +16,7 @@
     <p class="slow">{{ slow }}</p>
     <p class="slowest">{{ slowest }}</p>
     <button class="bump" @click="bump">{{ clicks }}</button>
+    <FunctionRef />
   </div>
 </template>
 
@@ -31,6 +32,9 @@ import (
 
 //goesm:import "./Child.vue"
 var Child js.Value
+
+//goesm:import "./FunctionRef.vue"
+var FunctionRef js.Value
 
 ticks := clock.Ticks
 doubled := vue.NewComputed(func() int { return ticks.Get() * 2 })
