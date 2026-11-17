@@ -23,8 +23,31 @@
 // watchers and computeds made with the vue package during setup re-run.
 
 import { computed, getCurrentInstance, shallowRef, triggerRef, useAttrs, watch } from "vue";
-import { propNames, propValue, readProps } from "gosfc:convert.js";
+import { defaultToGo, propNames, propValue, readProps } from "gosfc:convert.js";
 import { toTemplate, unview } from "gosfc:handles.js";
+
+/**
+ * The options of the Vue props a block's Props fields are declared as: a
+ * field whose zero value is a boolean is a Boolean prop, so that Vue casts
+ * a bare attribute (<Child open />) to true and a missing one to false; a
+ * field with a default tag has that default. Other fields take any value,
+ * which the bridge converts to the field's type.
+ * @param {() => Record<string, unknown>} props zero value of the block's Props
+ * @param {string[]} names the names the fields are declared by
+ * @param {Record<string, string>} [defaults] the `default` tags of the fields, by key
+ * @returns {Record<string, { type: BooleanConstructor | null, default?: unknown }>}
+ */
+export function propOptions(props, names, defaults = {}) {
+  const zero = props();
+  /** @type {Record<string, { type: BooleanConstructor | null, default?: unknown }>} */
+  const out = {};
+  for (const [key, name] of propNames(zero)) {
+    if (!names.includes(name) || name in out) continue;
+    out[name] = { type: typeof zero[key] === "boolean" ? Boolean : null };
+    if (key in defaults) out[name].default = defaultToGo(zero[key], defaults[key]);
+  }
+  return out;
+}
 
 /**
  * @param {(props?: any) => (name: string) => unknown} setup
