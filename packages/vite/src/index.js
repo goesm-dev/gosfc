@@ -23,6 +23,7 @@
 //   gosfc:bridge.js       -> runtime/bridge.js (template bindings)
 //   gosfc:astro.js        -> runtime/astro.js (Go frontmatter bindings)
 //   gosfc:convert.js      -> runtime/convert.js (binding values and props, used by both)
+//   gosfc:handles.js      -> runtime/handles.js (Go objects shown to templates, used by both)
 //   gosfc:astro-script/<n>/<file>.js
 //                         -> the n-th <script lang="go"> of an .astro file, compiled
 //                            when requested (also in Astro's client build, which has
@@ -75,12 +76,14 @@ const GO_IMPORT = /["']go:/;
 // Relative specifiers in goesm's modules: import / export ... from "./x.ts", import("../y.ts").
 const REL_IMPORTS = /(\b(?:from|import)\s*\(?\s*)"(\.\.?\/[^"]+)"/g;
 const CONVERT_ID = PREFIX + "convert.js";
+const HANDLES_ID = PREFIX + "handles.js";
 /** virtual id -> runtime file of gosfc */
 const RUNTIME_FILES = new Map(
   [
     [BRIDGE_ID, "bridge.js"],
     [ASTRO_RUNTIME_ID, "astro.js"],
     [CONVERT_ID, "convert.js"],
+    [HANDLES_ID, "handles.js"],
   ].map(([id, f]) => [id, fileURLToPath(new URL("../runtime/" + f, import.meta.url))]),
 );
 const GO_KEYWORDS = new Set(["break", "case", "chan", "const", "continue", "default", "defer", "else", "fallthrough", "for", "func", "go", "goto", "if", "import", "interface", "map", "package", "range", "return", "select", "struct", "switch", "type", "var"]);

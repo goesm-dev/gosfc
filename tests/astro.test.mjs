@@ -95,6 +95,20 @@ const title: string = "Cart";
 `,
   );
   t.after(() => rmSync(file, { force: true }));
+  // The integration's options have types (src/index.d.ts of @gosfc/astro).
+  const config = path.join(example, "src", "TmpConfig.ts");
+  writeFileSync(
+    config,
+    `import gosfc, { serverOnly } from "@gosfc/astro";
+import type { AstroIntegration } from "astro";
+
+export const integration: AstroIntegration = gosfc({ vue: { jsx: false } });
+export const off: boolean = serverOnly("/app/src", "/app/src/pages/api.ts");
+// @ts-expect-error vue takes the options of @astrojs/vue, or false
+gosfc({ vue: true });
+`,
+  );
+  t.after(() => rmSync(config, { force: true }));
   const bin = (name) => path.join(example, "node_modules", ".bin", name);
   const run = (cmd, args) =>
     new Promise((resolve) => {
@@ -103,6 +117,8 @@ const title: string = "Cart";
   // astro check runs astro sync, which writes the types of the Go components.
   let r = await run(bin("astro"), ["check"]);
   assert.equal(r.code, 0, r.out);
+  // astro.config.mjs imports @gosfc/astro, whose types it finds.
+  assert.match(r.out, /- 0 hints/);
   const types = readFileSync(path.join(example, ".astro", "integrations", "_gosfc_astro", "go-imports.d.ts"), "utf8");
   assert.match(types, /^declare module "go:(\*"|example\.com\/app\/src\/features\/cart\/_gosfc\/summary_vue" \{)/m);
   r = await run(process.execPath, [createRequire(path.join(example, "package.json")).resolve("vue-tsc/bin/vue-tsc.js"), "--noEmit"]);

@@ -185,6 +185,58 @@ test("gosfc-level errors: methods, JS reserved words, <script lang=go>", async (
   assert.match(e.message, /<script lang="go"> is not supported/);
 });
 
+test("a Go block that blocks in the setup is an error naming the calls that block", async () => {
+  const source = `<template>
+  <p>{{ n }}</p>
+</template>
+
+<script setup lang="go">
+import "example.com/fixture/src/slow"
+
+n := slow.Load()
+</script>
+`;
+  const file = component("TmpBlockingSetup.vue", source);
+  const e = await compileError(file, source);
+  assert.equal(e.name, "GosfcError");
+  assert.deepEqual([e.loc.line, e.loc.column], [8, 1]);
+  assert.match(
+    e.message,
+    /^src\/TmpBlockingSetup\.vue:8:1: the Go block blocks while the component is set up, which Vue cannot wait for:\n {4}src\/TmpBlockingSetup\.vue:8: n := slow\.Load\(\)\n {4}src\/slow\/slow\.go:7: return wait\(\)\n {4}src\/slow\/slow\.go:11: time\.Sleep\(time\.Millisecond\)\n {2}Run what blocks in a goroutine/,
+  );
+});
+
+test("a Go function that blocks is an error where the template calls it while it renders", async () => {
+  const source = `<template>
+  <p :title="Late()">{{ Late() + 1 }}</p>
+  <button @click="Late">wait</button>
+</template>
+
+<script setup lang="go">
+import "time"
+
+func Late() int {
+	time.Sleep(time.Millisecond)
+	return 1
+}
+</script>
+`;
+  const file = component("TmpBlockingCall.vue", source);
+  const e = await compileError(file, source);
+  assert.deepEqual(
+    e.errors.map((x) => [x.line, x.column]),
+    [
+      [2, 14],
+      [2, 25],
+    ],
+  );
+  assert.match(e.errors[0].message, /^Late blocks, and the template calls it while it renders, which cannot wait for it:\n {4}src\/TmpBlockingCall\.vue:10: time\.Sleep\(time\.Millisecond\)\n {2}A Go function the template calls must return at once/);
+
+  // An event handler may block: the bindings are read again when it returns.
+  const handler = source.replace(`  <p :title="Late()">{{ Late() + 1 }}</p>\n`, "");
+  await compileSfc(handler, component("TmpBlockingHandler.vue", handler), { root: app });
+});
+
 test(".astro: a ---go frontmatter becomes TypeScript, <script lang=go> a module import", async () => {
   const source = `---go
 import (

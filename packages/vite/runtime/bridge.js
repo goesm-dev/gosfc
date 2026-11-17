@@ -23,7 +23,8 @@
 // watchers and computeds made with the vue package during setup re-run.
 
 import { computed, getCurrentInstance, shallowRef, triggerRef, useAttrs, watch } from "vue";
-import { fromGo, propNames, propValue, readProps } from "gosfc:convert.js";
+import { propNames, propValue, readProps } from "gosfc:convert.js";
+import { toTemplate, unview } from "gosfc:handles.js";
 
 /**
  * @param {(props?: any) => (name: string) => unknown} setup
@@ -81,14 +82,17 @@ export function useGo(setup, _version, props, defaults, declared) {
         get() {
           const v = read();
           // A Go function held by a Ref changes Go state like any other.
-          if (isRef(v)) return fromGo(v.Get(), changed);
-          return fromGo(v, changed);
+          // A pointer to a struct with methods is shown as a view of its
+          // fields and methods (handles.js).
+          if (isRef(v)) return toTemplate(v.Get(), changed);
+          return toTemplate(v, changed);
         },
         set(x) {
           const v = read();
           if (!isRef(v) || typeof v.Set !== "function") throw new TypeError(`${name} is not a vue.Ref; only a Ref can be written from the template`);
           // ref="..." sets the same element after every render; only a new
           // value updates what read the Ref.
+          x = unview(x);
           if (!Object.is(x, v.Peek())) v.Set(x);
         },
       });

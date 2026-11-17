@@ -43,9 +43,11 @@ packages/vite/      @gosfc/vite: the Vite plugin. src/compile.js is the core of 
                     src/program.js keeps the Go of the app as one goesm program per environment,
                     src/goesm.js is the only boundary with goesm, runtime/bridge.js handles template bindings,
                     runtime/astro.js the bindings of a Go frontmatter, runtime/convert.js the binding values and props of both,
-                    src/language.js (vue-language-plugin.cjs) the TypeScript view of Go components for vue-tsc (§13)
+                    src/language.js (vue-language-plugin.cjs) the TypeScript view of Go components for vue-tsc (§13),
+                    src/blocking.js finds Go that blocks where a Vue component cannot wait (§6), runtime/handles.js
+                    shows Go objects to templates (§6), src/index.d.ts the package's types
 packages/astro/     @gosfc/astro: an integration that only configures @gosfc/vite (+ @astrojs/vue if installed),
-                    and re-exports its Vue language plugin
+                    and re-exports its Vue language plugin; src/index.d.ts is its types
 examples/astro/     The PoC (Astro → Vue → gosfc → goesm → Vite), and an .astro page written in Go
 examples/astro-go/  Go in .astro files only, without Vue installed
 tests/              Node tests (Astro build, Vite build / SSR / HMR, diagnostics) and fixtures
@@ -133,6 +135,8 @@ Only one change was made on the goesm side for this PoC: adding `-overlay` to `b
 
 * What Go code changes are ordinary Go variables, which Vue cannot observe. So every time a Go function is called through a binding (an event handler, a call in the template), the instance's version is advanced and every binding re-reads its value from Go. Only Vue's own reactivity and scheduler are used; there is no separate renderer or scheduler.
 * Values are converted for the template by goesm's JS calling ABI (Go string → JS string, slice → array, struct → object, function → function). This is a snapshot: modifying it on the JS side does not change Go state.
+* The ABI hands out a pointer to a struct type with methods as the Go object itself (a handle), whose fields hold Go's own representation under their Go names. `runtime/handles.js` shows the template a view of each handle in a value instead: a plain object of the fields as `goToJS` of the struct type converts them (named by their `js` or `json` tags; a field holding another handle is a view made when it is read), whose non-enumerable exported methods call the handle's and report a change like any other call. A view passed back to Go (an argument of a Go function, a `vue.Ref`'s `Set`) is the handle again, so Go sees its own object. It uses the goesm runtime's `classTypes`, `Kind` and `goToJS`.
+* Vue runs the setup synchronously, and a render shows what a call returns, so neither can wait for a Promise. `src/blocking.js` reads the lowered TypeScript of the block's package (only when it has an `async` function): an async `GosfcSetup`, or the async closure of a binding that an interpolation or a directive other than `v-on` calls, is a compile-time error. The error names the chain of calls that blocks, following the first `await` of each function through the module and the modules it imports, mapped back to Go by the source maps, until a call into the standard library or one the module does not show (a method called through an interface, a function value).
 * A binding holding a `vue.Ref` or `vue.Computed` (package `vue`, a goesm handle with the marker method `GosfcRef`) reads as `Get()`. The Ref's `Get` reads a Vue `shallowRef` and its `Set` triggers it, so Vue tracks the Ref in the binding's computed, in the render (for Go functions called from the template) and in watchers, whoever calls `Set`. The binding's computed is writable: `v-model` and `ref="..."` call `Set`, unless the value is the one the Ref already holds.
 * A Go function called while Vue renders does not advance the version: it would invalidate what the render is reading and make it run again forever.
 * With `type Props`, the bridge watches the attributes and passes new props through the lookup's `gosfc:props` setter, then advances the version and a props version that the `vue` package's watchers and computeds made during setup also read.
