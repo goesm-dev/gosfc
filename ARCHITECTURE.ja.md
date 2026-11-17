@@ -111,6 +111,7 @@ return func(gosfcBinding string) any {
 * ブロックが `type Props struct {...}` を宣言すると、その型はパッケージレベルに置かれ、setup 関数は `func GosfcSetup(props Props)` になります。さらに `func GosfcProps() any { return Props{} }` を生成します。この値は、goesm の ABI がフィールドに付ける名前（`js` タグ、なければ JSON 名）をキーとする普通のオブジェクトとして JavaScript に渡ります。glue はフィールドを Vue の props として宣言し（`defineProps([...])`。名前は synth が `propKeys` として返すキーの先頭の大文字を小文字にしたもの）、ブリッジはその props（と Go のフィールド名で書いた属性）でこのオブジェクトのコピーを埋めて setup 関数に渡し、setup 関数の ABI がそれを Props に変換します。ほかの属性（`class`、`style`、リスナー）は、普通の Vue のコンポーネントと同じくルート要素に落ちます。Props のフィールドの型はインポートした型か組み込み型に限られます（ブロック内の型はまだ宣言されていないため）。
 * gosfc は Go をパースしません。`internal/synth` は標準の `go/scanner` でトークン化し、括弧の深さとスキャナーが挿入するセミコロンだけでトップレベルの区切りを決め、各要素の先頭トークン（`import` / `func 名前` / `var` / `const` / `type` / `a, b :=`）を見て分類と名前の取得をします。構文・型のエラーは全て Go ツールチェーンが報告します。
 * gosfc が自分で出す診断は Go の外の制約だけです：メソッド宣言、ジェネリック関数、インポートの位置、JavaScript の予約語と衝突するバインディング名（`new`、`class` など）、`<script lang="go">`（setup なし）。
+* `@gosfc/vite` は、テンプレートが読むのに何も宣言していない名前も報告します。`prefixIdentifiers` でコンパイルしたテンプレートは、コンポーネントの名前を `_ctx.x` の単純式として、それぞれテンプレート上の位置付きで読みます（`v-for`・`v-slot`・`$event` の名前と、Vue が許すグローバルは `_ctx` から読みません）。バインディング、宣言した prop、`$` プロパティ、普通の `<script>` のトップレベルの名前のどれでもない名前は、その位置のエラーです。
 
 ## 5. goesm との API 境界
 

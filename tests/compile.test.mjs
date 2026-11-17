@@ -185,6 +185,47 @@ test("gosfc-level errors: methods, JS reserved words, <script lang=go>", async (
   assert.match(e.message, /<script lang="go"> is not supported/);
 });
 
+test("a name the template reads that nothing declares is an error at its template position", async () => {
+  const source = `<template>
+  <div v-if="missing" :title="label" @click="Pick($event, $attrs.x)">
+    <p v-for="(it, i) in items" :key="i">{{ it }} {{ Math.max(i, n) }} {{ shared }} {{ fromTs }}</p>
+    <Comp v-slot="{ row }">{{ row }} {{ $slots }} {{ props.Label }}</Comp>
+    <p>{{ other.field }}</p>
+    <button @click="Pick" @dblclick="Unpick">x</button>
+  </div>
+</template>
+
+<script lang="ts">
+import { ref as fromTs } from "vue";
+export const shared = 1;
+</script>
+
+<script setup lang="go">
+type Props struct {
+	Label string
+}
+
+items := []int{1}
+n := 2
+
+func Pick() {}
+</script>
+`;
+  const file = component("TmpUndeclared.vue", source);
+  const e = await compileError(file, source);
+  assert.equal(e.name, "GosfcError");
+  const lines = e.message.split("\n").filter((l) => l.startsWith("src/"));
+  assert.deepEqual(
+    lines.map((l) => l.slice(0, l.indexOf(" is not declared"))),
+    ["src/TmpUndeclared.vue:2:14: missing", "src/TmpUndeclared.vue:5:11: other", "src/TmpUndeclared.vue:6:38: Unpick"],
+  );
+  assert.match(lines[0], /not a top-level name of the Go block, a prop, a variable of the template \(v-for, v-slot\) or a global Vue allows/);
+
+  // A plain <script> with options (export default) may declare anything.
+  const options = `<template><p>{{ fromOptions }}</p></template>\n<script lang="ts">\nexport default { data: () => ({ fromOptions: 1 }) };\n</script>\n<script setup lang="go">\nn := 1\n_ = n\n</script>\n`;
+  await compileSfc(options, component("TmpOptions.vue", options), { root: app });
+});
+
 test("a Go block that blocks in the setup is an error naming the calls that block", async () => {
   const source = `<template>
   <p>{{ n }}</p>
