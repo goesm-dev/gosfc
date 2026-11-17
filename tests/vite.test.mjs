@@ -86,6 +86,19 @@ test("dev server: SSR renders Go bindings and picks up edits without a restart",
   assert.match(html, /合計: 600/);
 });
 
+test("dev server: a .vue id with another query, such as Astro's ?astro-retry=, is compiled", async (t) => {
+  const server = await createServer({ root, configFile: false, logLevel: "silent", plugins: plugins(), appType: "custom", server: { middlewareMode: true, hmr: false } });
+  t.after(() => server.close());
+  // plugin-vue compiles such an id as the main module and serves its
+  // blocks from that compilation: the Go block is replaced first, or the
+  // script block is the Go source.
+  const r = await server.transformRequest("/src/Summary.vue?astro-retry=1");
+  assert.match(r.code, /GosfcSetup/);
+  assert.doesNotMatch(r.code, /lang\.go/);
+  const mod = await server.ssrLoadModule("/src/Summary.vue?astro-retry=2");
+  assert.match(await renderToString(createSSRApp(mod.default)), /合計: 200/);
+});
+
 test("Props: attributes reach the Go block as a typed struct", async (t) => {
   const server = await createServer({ root, configFile: false, logLevel: "silent", plugins: plugins(), appType: "custom", server: { middlewareMode: true, hmr: false } });
   t.after(() => server.close());

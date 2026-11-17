@@ -89,6 +89,28 @@ const RUNTIME_FILES = new Map(
 const GO_KEYWORDS = new Set(["break", "case", "chan", "const", "continue", "default", "defer", "else", "fallthrough", "for", "func", "go", "goto", "if", "import", "interface", "map", "package", "range", "return", "select", "struct", "switch", "type", "var"]);
 
 /**
+ * The .vue file whose main module id requests, or undefined. As for
+ * @vitejs/plugin-vue, an id with ?vue (a request for one of its blocks),
+ * ?raw or ?url is not the main module, and one with other query parameters
+ * (Astro's ?astro-retry=..., a cache buster) is: plugin-vue compiles it,
+ * and serves its blocks from that compilation, so its Go block must have
+ * been replaced first.
+ * @param {string} id
+ * @returns {string | undefined}
+ */
+function vueMainFile(id) {
+  if (id.includes("\0")) return undefined;
+  const q = id.indexOf("?");
+  const file = q < 0 ? id : id.slice(0, q);
+  if (!file.endsWith(".vue")) return undefined;
+  if (q >= 0) {
+    const query = new URLSearchParams(id.slice(q + 1));
+    if (query.has("vue") || query.has("raw") || query.has("url")) return undefined;
+  }
+  return file;
+}
+
+/**
  * The environment a hook runs in: "client" for the browser's, "server" for
  * any other (SSR, or no environments).
  * @param {any} ctx a hook's this
@@ -483,23 +505,24 @@ export default function gosfc(options = {}) {
         else if (id === file) await forget(file, new Set(imports), true);
         if (imports.length) return null;
       }
-      if (!id.endsWith(".vue") || id.includes("?") || id.includes("\0")) return null;
+      const vueFile = vueMainFile(id);
+      if (!vueFile) return null;
       if (!mayHaveGoSetup(code)) {
         // A component whose Go block was removed.
-        dropCompiled(id);
-        await forget(id);
+        dropCompiled(vueFile);
+        await forget(vueFile);
         return null;
       }
       let result;
       try {
-        result = await compile(code, id, envOf(this));
+        result = await compile(code, vueFile, envOf(this));
       } catch (e) {
         fail(this, e);
       }
       if (!result) return null;
 
       for (const f of result.goFiles) {
-        addGoDependent(f, id);
+        addGoDependent(f, vueFile);
         // Rebuild (vite build --watch) and invalidate (dev) on .go changes.
         this.addWatchFile(f);
       }
