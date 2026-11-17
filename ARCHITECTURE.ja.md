@@ -104,13 +104,13 @@ return func(gosfcBinding string) any {
 ```
 
 * ユーザーのテキストは全て `//line` ディレクティブの後ろにそのまま写します。Go の文法は変えません。go/parser、go/types、goesm の診断とソースマップは全て `.vue` の位置を指します。生成ファイル自身の位置（`_gosfc/.../setup.go`）が利用者に見えることはありません。
-* 並び：const / type 宣言 → 各 `func F(...)` のための `var F func(...)` → 残りを元の順で。`func F() {...}` は `F=func() {...}` に置き換えます。`F=func` は `func F` と同じ長さなので列もずれません。関数同士の相互参照・再帰ができ、本体は上から順に実行されます（Vue の `setup()` と同じ）。宣言より前で関数を呼ぶと nil func のパニックになります。
+* 並び：const / type 宣言とメソッドはパッケージレベル。setup 関数の中は、各 `func F(...)` のための `var F func(...)` → 残りを元の順で。`func F() {...}` は `F=func() {...}` に置き換えます。`F=func` は `func F` と同じ長さなので列もずれません。関数同士の相互参照・再帰ができ、本体は上から順に実行されます（Vue の `setup()` と同じ）。宣言より前で関数を呼ぶと nil func のパニックになります。
 * goesm の `//goesm:import` ディレクティブが前にある `var` と本体のない関数は、Vue コンポーネントや TypeScript の関数などの ES モジュールの値を取り込む宣言です。これらはディレクティブとともにパッケージレベルに置きます。ディレクティブは宣言の直前の行に置き、その前の `//line` ディレクティブで宣言自身の位置が保たれるようにします。間に `//line` を挟むと、goesm が読むドキュメントコメントが途切れるからです。goesm は相対パスのモジュールを `//line` が指す `.vue` ファイルから解決し、`@gosfc/vite` はそのファイルの import を絶対パスに書き換えます。Vite はそれをほかのモジュールと同じように読み込みます。`js.Value` のバインディングはテンプレートでは保持している値そのものになるので、コンポーネントは `<Badge />` として使えます。
 * 返り値のルックアップ関数がテンプレートバインディングの入口です。`GosfcSetup` はコンポーネントのパッケージがエクスポートする関数なので、ルックアップ関数の引数と戻り値は goesm の [JS 呼び出し ABI](https://github.com/goesm-dev/goesm/blob/main/docs/js-exports.ja.md) が変換します。各値は動的な型に従って変換され、JavaScript に渡ります。ルックアップが返すのはテンプレートが使うバインディングだけです。`@gosfc/vite` はテンプレートを `@vue/compiler-sfc` でコンパイルし、そこから setup のスコープを読む名前（`_ctx.x`、解決するコンポーネントとディレクティブ、静的な `ref="..."` の値、`<style>` の `v-bind()` の識別子）を `used` として synth に渡します。glue もそれだけを宣言するので、goesm は残りを削ったりインライン化したりできます（テンプレートがコンパイルできない場合や HTML でない場合は全バインディングを使います）。残りも `_ = x` で参照するので、テンプレートからしか使わない変数も Go の「declared and not used」にはなりません。未使用のインポートは通常どおり Go のエラーです。
 * パッケージは `.vue` と同じディレクトリの下の、ディスクには存在しない `_gosfc/<name>_vue/` に置きます（goesm のオーバーレイで渡す）。そのためインポートパスは `<module>/<dir>/_gosfc/<name>_vue` になり、`internal/` の可視性も `.vue` の場所を基準に普通の Go と同じく働きます。ユーザーのソースツリーには何も書きません。
-* ブロックが `type Props struct {...}` を宣言すると、その型はパッケージレベルに置かれ、setup 関数は `func GosfcSetup(props Props)` になります。さらに `func GosfcProps() any { return Props{} }` を生成します。この値は、goesm の ABI がフィールドに付ける名前（`js` タグ、なければ JSON 名）をキーとする普通のオブジェクトとして JavaScript に渡ります。glue はフィールドを Vue の props として宣言し（`defineProps([...])`。名前は synth が `propKeys` として返すキーの先頭の大文字を小文字にしたもの）、ブリッジはその props（と Go のフィールド名で書いた属性）でこのオブジェクトのコピーを埋めて setup 関数に渡し、setup 関数の ABI がそれを Props に変換します。ほかの属性（`class`、`style`、リスナー）は、普通の Vue のコンポーネントと同じくルート要素に落ちます。Props のフィールドの型はインポートした型か組み込み型に限られます（ブロック内の型はまだ宣言されていないため）。
+* ブロックが `type Props struct {...}` を宣言すると、その型はパッケージレベルに置かれ、setup 関数は `func GosfcSetup(props Props)` になります。さらに `func GosfcProps() any { return Props{} }` を生成します。この値は、goesm の ABI がフィールドに付ける名前（`js` タグ、なければ JSON 名）をキーとする普通のオブジェクトとして JavaScript に渡ります。glue はフィールドを Vue の props として宣言し（`defineProps([...])`。名前は synth が `propKeys` として返すキーの先頭の大文字を小文字にしたもの）、ブリッジはその props（と Go のフィールド名で書いた属性）でこのオブジェクトのコピーを埋めて setup 関数に渡し、setup 関数の ABI がそれを Props に変換します。ほかの属性（`class`、`style`、リスナー）は、普通の Vue のコンポーネントと同じくルート要素に落ちます。Props のフィールドの型には、インポートした型、組み込み型、ブロックで宣言した型（これもパッケージレベルの型）を使えます。
 * gosfc は Go をパースしません。`internal/synth` は標準の `go/scanner` でトークン化し、括弧の深さとスキャナーが挿入するセミコロンだけでトップレベルの区切りを決め、各要素の先頭トークン（`import` / `func 名前` / `var` / `const` / `type` / `a, b :=`）を見て分類と名前の取得をします。構文・型のエラーは全て Go ツールチェーンが報告します。
-* gosfc が自分で出す診断は Go の外の制約だけです：メソッド宣言、ジェネリック関数、インポートの位置、JavaScript の予約語と衝突するバインディング名（`new`、`class` など）、`<script lang="go">`（setup なし）。
+* gosfc が自分で出す診断は Go の外の制約だけです：ジェネリック関数、インポートの位置、JavaScript の予約語と衝突するバインディング名（`new`、`class` など）、`<script lang="go">`（setup なし）。
 
 ## 5. goesm との API 境界
 
@@ -203,7 +203,7 @@ goesm 側の変更はこの PoC のために 1 つだけです：`build` / `emit
 
 * slots を Go から扱う方法。
 * `gosfc fmt`（§12）、language server、VS Code extension。
-* メソッド、ジェネリック関数を Go ブロック内で宣言すること（Go パッケージに置く必要がある）。
+* ジェネリック関数を Go ブロック内で宣言すること（Go パッケージに置く必要がある）。
 * ゴルーチンやタイマーなど、バインディング経由の呼び出し以外で起きた普通の Go 変数（`vue.Ref` ではないもの）の変更をテンプレートに反映すること。
 * 普通の Go 変数への `v-model`（`vue.Ref` には使えます）。
 
