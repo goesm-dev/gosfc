@@ -1,0 +1,9 @@
+{
+  "extends": "astro/tsconfigs/strict",
+  // astro check reads a Go frontmatter as TypeScript: it checks the .astro
+  // files written in TypeScript, which may import the Go ones.
+  "exclude": ["dist", "src/pages/go.astro", "src/features/cart/Line.astro"],
+  "vueCompilerOptions": {
+    "plugins": ["@gosfc/astro/vue-language-plugin"]
+  }
+}

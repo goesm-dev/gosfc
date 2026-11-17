@@ -94,6 +94,12 @@ test("Props: attributes reach the Go block as a typed struct", async (t) => {
   assert.equal(await render({ name: "Go", times: 2, "html-note": "!" }), '<p class="greet">hi Go hi Go !</p>');
   assert.equal(await render({ name: "ゴー", times: "1", loud: "" }), '<p class="greet">HI ゴー </p>');
   assert.equal(await render({}), '<p class="greet"></p>');
+
+  // A field with a js tag is the prop of that name, declared like the others
+  // (it does not fall through to the root element).
+  const { default: Rating } = await server.ssrLoadModule("/src/typed/Rating.vue");
+  const html = await renderToString(createSSRApp({ render: () => h(Rating, { label: "Q", max: 2, tags: ["a", "b"], noteText: "ok", itemId: 7 }) }));
+  assert.equal(html, '<button class="rating">Q: ** (2) ok #7</button>');
 });
 
 test("the template calls Go functions with structs and slices", async (t) => {

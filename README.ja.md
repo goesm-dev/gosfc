@@ -103,7 +103,7 @@ export default { plugins: [gosfc(), vue()] };
   </script>
   ```
 * メソッドとジェネリック関数は Go パッケージに置いてください。
-* props を受け取るには `type Props struct {...}` を宣言します。ブロックの中でその型の `props` 変数が使えます。フィールド `Route` は属性 `route`（json タグがあればその名前、または kebab-case の形）から読み、フィールドの型に変換します。文字列、bool、数値のほか、struct、スライス、ポインタ（`null` は nil）、関数も goesm の ABI のとおりに変換します。フィールドの `default:"..."` タグは、親が渡さなかった props の値になります。親が新しい props を渡すと `props` が置き換わり、テンプレート（`{{ props.Title }}`）も読み直します。フィールドは Vue の props として宣言されるので、ほかの属性（`class`、`style`、リスナー）は普通どおりルート要素にフォールスルーします。
+* props を受け取るには `type Props struct {...}` を宣言します。ブロックの中でその型の `props` 変数が使えます。フィールド `Route` は属性 `route`（`js` タグか `json` タグがあればその名前、または kebab-case の形）から読み、フィールドの型に変換します。文字列、bool、数値のほか、struct、スライス、ポインタ（`null` は nil）、関数も goesm の ABI のとおりに変換します。フィールドの `default:"..."` タグは、親が渡さなかった props の値になります。親が新しい props を渡すと `props` が置き換わり、テンプレート（`{{ props.Title }}`）も読み直します。フィールドは Vue の props として宣言されるので、ほかの属性（`class`、`style`、リスナー）は普通どおりルート要素にフォールスルーします。
 
   ```vue
   <script setup lang="go">
@@ -248,6 +248,72 @@ declare module "go:example.com/app/content" {
 ```
 
 Astro では、`@gosfc/astro` がこの宣言を `.astro/integrations/_gosfc_astro/go-imports.d.ts` に書き出します。このファイルは `.astro/types.d.ts` から参照されるので、`astro check` とエディターから型が見えます。`astro sync` と、それを実行する `astro check` は、Go をコンパイルして宣言を書き出します。`astro dev` と `astro build` は、コンパイルするたびに宣言を書き直します。Vite だけを使う場合、`@gosfc/vite` は Vite のルートの `gosfc.d.ts` に宣言を書き出します。このファイルは、プロジェクトの `tsconfig.json` の `include` に含めます。`gosfc({ dts: "src/gosfc.d.ts" })` で別のファイルを指定でき、`gosfc({ dts: false })` で書き出さないようにできます。Go を一度もコンパイルしていない間は、すべての `go:` の import を `any` として宣言します。
+
+このファイルは、各 `.vue` ファイルの Go ブロックのパッケージも宣言します。Vue の言語プラグインは、ここからコンポーネントの props の型を読みます（次の節）。
+
+## vue-tsc で型チェックする
+
+vue-tsc と Vue のエディター拡張は、TypeScript か JavaScript の `<script setup>` からだけ TypeScript を生成します。Go のコンポーネントからは何も生成しないので、それを import する TypeScript のコンポーネントは `TS2306: File '.../Rating.vue' is not a module` で失敗します。`@gosfc/vite` には、Go ブロックごとに TypeScript での見え方を Vue の言語ツールに渡すプラグインがあります。`tsconfig.json` で指定します。
+
+```jsonc
+{
+  "vueCompilerOptions": {
+    "plugins": ["@gosfc/vite/vue-language-plugin"] // Astro では "@gosfc/astro/vue-language-plugin"
+  }
+}
+```
+
+これで Go のコンポーネントは TypeScript からもコンポーネントとして見えます。末端のコンポーネントから Go に移し、それを使う TypeScript のコンポーネントはそのまま残せます。
+
+```vue
+<!-- Rating.vue -->
+<template>
+  <button @click="Rate">{{ props.Label }}</button>
+</template>
+
+<script setup lang="go">
+import "github.com/goesm-dev/gosfc/vue"
+
+type Props struct {
+	Label string
+	Max   int `default:"5"`
+}
+
+emit := vue.Emitter()
+
+func Rate() {
+	emit("rated", props.Max)
+}
+</script>
+```
+
+```vue
+<!-- Review.vue -->
+<template>
+  <Rating label="品質" :max="3" @rated="onRated" />
+</template>
+
+<script setup lang="ts">
+import Rating from "./Rating.vue";
+
+function onRated(stars: number) {
+  console.log(stars);
+}
+</script>
+```
+
+* props は `type Props struct` のフィールドで、コンポーネントが宣言する名前（`label`、`max`、`json:"note-text"` タグのフィールドなら `noteText`）になり、どれも省略できます。型は goesm がフィールドに付ける型です（`<Rating :max="'three'" />` は `error TS2322: Type 'string' is not assignable to type 'number'` になります）。前の節の型ファイルから読むので、そのファイルを TypeScript のプロジェクトに含めてください。Go を一度コンパイルする（開発サーバー、ビルド、`astro sync`、`astro check`）までは、props は `any` です。
+* イベントは、`vue.Emitter()` が返す関数にブロックが文字列リテラルで渡す名前で、引数は `any` です。
+* Go のコンポーネントのテンプレートは、Go ブロックのバインディングを `any` 型として読みます。ブロックが宣言していない名前はエラーになります。
+
+プラグインは Vite プラグインと同じく `go tool gosfc synth` で Go ブロックを読みます。Go はコンパイルしません。go コマンドか gosfc ツールがないときは、一度だけ警告を出し、Go のコンポーネントの props とバインディングを `any` にします。この見え方は `.vue` ファイルのどこにも対応付けないので、エラー、ホバー、フォーマットが Go のコードに及ぶことはありません（Go のエディター支援は gopls の役割です。ARCHITECTURE.ja.md §12 を参照）。
+
+`astro check` は `.vue` ファイルを vue-tsc に任せます。Go のコンポーネント（`.vue` でも `.astro` でも）を import する `.astro` ファイルは普通どおりチェックされ、Astro は Go の `.vue` コンポーネントの props を `Record<string, any>` とします。Go のフロントマターは TypeScript として読むので、Go を書いた `.astro` ファイルは `tsconfig.json` の `include` から外してください（`exclude`）。それらを import するファイルはチェックされます。[examples/astro](examples/astro) はこの形で `astro check && vue-tsc --noEmit` を実行します（`pnpm check`）。
+
+制限:
+
+* ほかの関数やパッケージを通して emit するイベントや、名前が文字列リテラルでないイベントは宣言されません。宣言されていないイベントを vue-tsc が報告するのは `checkUnknownEvents` のときだけです。
+* Props に埋め込んだ struct のフィールドは props として宣言されません。実行時も Vue の props ではなく、属性から読みます。
 
 ## ベンチマーク
 

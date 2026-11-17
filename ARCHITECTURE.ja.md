@@ -42,14 +42,16 @@ internal/synth/     <script setup lang="go"> と .astro の Go → synthetic Go�
 packages/vite/      @gosfc/vite: Vite plugin。src/compile.js が SFC と .astro の変換の中心、
                     src/program.js がアプリの Go を環境ごとに 1 つの goesm プログラムにまとめる、
                     src/goesm.js が goesm との唯一の境界、runtime/bridge.js が template binding、
-                    runtime/astro.js が Go のフロントマターの binding、runtime/convert.js が両者のバインディングの値と props
-packages/astro/     @gosfc/astro: @gosfc/vite（と、インストールされていれば @astrojs/vue）を設定するだけの integration
+                    runtime/astro.js が Go のフロントマターの binding、runtime/convert.js が両者のバインディングの値と props、
+                    src/language.js（vue-language-plugin.cjs）が vue-tsc から見た Go のコンポーネントの型（§13）
+packages/astro/     @gosfc/astro: @gosfc/vite（と、インストールされていれば @astrojs/vue）を設定するだけの integration。
+                    @gosfc/vite の Vue の言語プラグインも再エクスポートする
 examples/astro/     PoC（Astro → Vue → gosfc → goesm → Vite）と Go で書いた .astro のページ
 examples/astro-go/  Vue をインストールせず、Go を .astro ファイルだけに書く例
 tests/              Node のテスト（Astro build、Vite build / SSR / HMR、診断）と fixture
 ```
 
-`core` を別パッケージにはしていません。今のところ利用者は Vite プラグインだけなので、`packages/vite/src/compile.js` が core の役割を持ちます。フォーマッターや language server が同じ処理を必要とした時点で切り出します。
+`core` を別パッケージにはしていません。`packages/vite/src/compile.js` が core の役割を持ち、Vite プラグインと Vue の言語プラグイン（§13）が同じパッケージの中から使います。フォーマッターや language server が同じ処理を必要とした時点で切り出します。
 
 ## 3. 処理の流れ
 
@@ -104,7 +106,7 @@ return func(gosfcBinding string) any {
 * goesm の `//goesm:import` ディレクティブが前にある `var` と本体のない関数は、Vue コンポーネントや TypeScript の関数などの ES モジュールの値を取り込む宣言です。これらはディレクティブとともにパッケージレベルに置きます。ディレクティブは宣言の直前の行に置き、その前の `//line` ディレクティブで宣言自身の位置が保たれるようにします。間に `//line` を挟むと、goesm が読むドキュメントコメントが途切れるからです。goesm は相対パスのモジュールを `//line` が指す `.vue` ファイルから解決し、`@gosfc/vite` はそのファイルの import を絶対パスに書き換えます。Vite はそれをほかのモジュールと同じように読み込みます。`js.Value` のバインディングはテンプレートでは保持している値そのものになるので、コンポーネントは `<Badge />` として使えます。
 * 返り値のルックアップ関数がテンプレートバインディングの入口です。`GosfcSetup` はコンポーネントのパッケージがエクスポートする関数なので、ルックアップ関数の引数と戻り値は goesm の [JS 呼び出し ABI](https://github.com/goesm-dev/goesm/blob/main/docs/js-exports.ja.md) が変換します。各値は動的な型に従って変換され、JavaScript に渡ります。ルックアップが返すのはテンプレートが使うバインディングだけです。`@gosfc/vite` はテンプレートを `@vue/compiler-sfc` でコンパイルし、そこから setup のスコープを読む名前（`_ctx.x`、解決するコンポーネントとディレクティブ、静的な `ref="..."` の値、`<style>` の `v-bind()` の識別子）を `used` として synth に渡します。glue もそれだけを宣言するので、goesm は残りを削ったりインライン化したりできます（テンプレートがコンパイルできない場合や HTML でない場合は全バインディングを使います）。残りも `_ = x` で参照するので、テンプレートからしか使わない変数も Go の「declared and not used」にはなりません。未使用のインポートは通常どおり Go のエラーです。
 * パッケージは `.vue` と同じディレクトリの下の、ディスクには存在しない `_gosfc/<name>_vue/` に置きます（goesm のオーバーレイで渡す）。そのためインポートパスは `<module>/<dir>/_gosfc/<name>_vue` になり、`internal/` の可視性も `.vue` の場所を基準に普通の Go と同じく働きます。ユーザーのソースツリーには何も書きません。
-* ブロックが `type Props struct {...}` を宣言すると、その型はパッケージレベルに置かれ、setup 関数は `func GosfcSetup(props Props)` になります。さらに `func GosfcProps() any { return Props{} }` を生成します。この値はフィールドの JSON 名をキーとする普通のオブジェクトとして JavaScript に渡ります。glue はフィールドを Vue の props として宣言し（`defineProps([...])`。名前は synth が `propKeys` として返すキーの先頭の大文字を小文字にしたもの）、ブリッジはその props（と Go のフィールド名で書いた属性）でこのオブジェクトのコピーを埋めて setup 関数に渡し、setup 関数の ABI がそれを Props に変換します。ほかの属性（`class`、`style`、リスナー）は、普通の Vue のコンポーネントと同じくルート要素に落ちます。Props のフィールドの型はインポートした型か組み込み型に限られます（ブロック内の型はまだ宣言されていないため）。
+* ブロックが `type Props struct {...}` を宣言すると、その型はパッケージレベルに置かれ、setup 関数は `func GosfcSetup(props Props)` になります。さらに `func GosfcProps() any { return Props{} }` を生成します。この値は、goesm の ABI がフィールドに付ける名前（`js` タグ、なければ JSON 名）をキーとする普通のオブジェクトとして JavaScript に渡ります。glue はフィールドを Vue の props として宣言し（`defineProps([...])`。名前は synth が `propKeys` として返すキーの先頭の大文字を小文字にしたもの）、ブリッジはその props（と Go のフィールド名で書いた属性）でこのオブジェクトのコピーを埋めて setup 関数に渡し、setup 関数の ABI がそれを Props に変換します。ほかの属性（`class`、`style`、リスナー）は、普通の Vue のコンポーネントと同じくルート要素に落ちます。Props のフィールドの型はインポートした型か組み込み型に限られます（ブロック内の型はまだ宣言されていないため）。
 * gosfc は Go をパースしません。`internal/synth` は標準の `go/scanner` でトークン化し、括弧の深さとスキャナーが挿入するセミコロンだけでトップレベルの区切りを決め、各要素の先頭トークン（`import` / `func 名前` / `var` / `const` / `type` / `a, b :=`）を見て分類と名前の取得をします。構文・型のエラーは全て Go ツールチェーンが報告します。
 * gosfc が自分で出す診断は Go の外の制約だけです：メソッド宣言、ジェネリック関数、インポートの位置、JavaScript の予約語と衝突するバインディング名（`new`、`class` など）、`<script lang="go">`（setup なし）。
 
@@ -214,3 +216,25 @@ goesm 側の変更はこの PoC のために 1 つだけです：`build` / `emit
 * **フォーマッター**：`gofmt` 相当は `go/format` を使います。`go/format.Source` は「宣言の列」や「文の列」も整形できるので、`internal/synth` のトップレベル分割を使ってインポート群・宣言・文をそれぞれ `go/format` に通し、元の空行で繋ぎ直せば Go ブロックだけを整形できます。`gosfc fmt` はそれを `.vue` の該当範囲に書き戻すだけにし、テンプレート / スタイルは Prettier や Vue Language Tools に任せます。
 * **language server**：`.vue` の Go ブロックから、ここで使っている synthetic Go をそのまま仮想の Go ドキュメントにし、gopls にオーバーレイとして渡します（gopls も go/packages のオーバーレイを使う）。`//line` ディレクティブがあるので gopls の診断・位置は `.vue` の座標に戻せます。completion・hover・definition・references・rename・code action・import completion は gopls のものを中継するだけにし、gosfc 独自の Go 補完は作りません。テンプレート / スタイルは Vue Language Tools の担当のままにして、`.vue` を 2 つの language server で分担します。VS Code extension は薄い LSP クライアントにします。
 * **テンプレート ↔ Go**：テンプレートの識別子と Go のバインディングの対応は、glue（`const total = __gosfc.binding("total")`）と synthetic Go のルックアップ（`case "total": return total`）の両方に現れます。Vue Language Tools が glue の `total` を辿れれば、その位置を synthetic Go 経由で gopls の定義に繋ぐことで definition / rename を双方向にできます。この橋渡しはまだ設計だけです。
+
+## 13. vue-tsc とエディターから見た型
+
+vue-tsc と Vue のエディター拡張は、TypeScript か JavaScript の `<script setup>` からだけ TypeScript を生成します。Go ブロックからは何も生成しないので、そのコンポーネントを import する TypeScript のコンポーネントは TS2306（"is not a module"）で失敗します。`@gosfc/vite/vue-language-plugin`（`packages/vite/src/language.js`）は `@vue/language-core` のプラグインで、`tsconfig.json` の `vueCompilerOptions.plugins` に書きます。中身は 2 つのプラグインです。
+
+* 言語ツールが `.vue` ファイルを解析する前に（`parseSFC2`、`order: -1`）、Go ブロックのあるファイルを `@vue/compiler-sfc` で解析し、ブロックの中身を、その代わりになる `<script setup lang="ts">`（ビュー）に置き換えます。
+
+  ```ts
+  type __gosfc_In = typeof import("go:example.com/app/src/_gosfc/rating_vue") extends { GosfcSetup(props: infer P): any } ? P : unknown;
+  type __gosfc_Prop<K extends string> = __gosfc_In extends { [k in K]?: infer T } ? T : any;
+  defineProps<{ "label"?: __gosfc_Prop<"Label">; "max"?: __gosfc_Prop<"Max"> }>();
+  defineEmits<{ "rated": any[] }>();
+  let props!: any;
+  let Rate!: any;
+  ```
+
+  あとは言語ツールが TypeScript のコンポーネントと同じようにコンポーネントを生成し、テンプレートをバインディングに対してチェックします。
+* 言語ツールが TypeScript を生成したあとで（`resolveEmbeddedCode`、`order: 1`）、ビューから生成したコードの対応付けを外し、どこも Go のコードに対応しないようにします。ビューのエラーは捨てられ、ホバーやフォーマットは Go ブロックに及びません。
+
+ビューに必要なブロックの情報は gosfc synth が返します（§4）。バインディング、`propKeys`、そして `vue.Emitter()` を代入した変数に渡す文字列リテラルの `emits` です。言語ツールは同期的に動くので、プラグインは `go tool gosfc synth` を `execFileSync` で実行します。実行できないときは、props は `any`、バインディングはテンプレートが読む名前（`templateNames`）になります。props の名前は glue が宣言する名前（`propFields`）です。props の型は goesm のものです。setup 関数は Props を受け取るので、goesm がブロックのパッケージに書き出す宣言ファイル（`emit-ts -dts`）にはフィールドの JavaScript の型があり、`go:` の import の型ファイル（`types.js`）は、各 `.vue` ファイルのブロックのパッケージを glue が import する `go:` specifier で宣言します。Go をコンパイルするまでは、そのモジュールはプレースホルダーの `any`（または未解決で、そのエラーは対応付けのないビューの中で捨てられる）になり、props も `any` になります。gosfc 自身は Go の型を TypeScript の型に対応付けません。
+
+`astro check` は `.vue` ファイルを `@astrojs/vue` を通して読みます。`@astrojs/vue` は props をスクリプトの `defineProps` から読み（Go のコンポーネントの props は `Record<string, any>` になる）、`.vue` ファイル自体はチェックしません。`astro check` にはプラグインがなく、Go のフロントマターは TypeScript として読みます。

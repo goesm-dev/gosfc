@@ -5,12 +5,18 @@
   "scripts": {
     "dev": "astro dev",
     "build": "astro build",
-    "preview": "astro preview"
+    "preview": "astro preview",
+    "check": "astro check && vue-tsc --noEmit"
   },
   "dependencies": {
     "@astrojs/vue": "^7.0.3",
     "@gosfc/astro": "workspace:*",
     "astro": "^7.3.5",
     "vue": "^3.5.43"
+  },
+  "devDependencies": {
+    "@astrojs/check": "^0.9.12",
+    "typescript": "^6.0.3",
+    "vue-tsc": "^3.3.14"
   }
 }

@@ -284,7 +284,7 @@ function vueBlock(code, filename, descriptor, root) {
  * @param {string} filename
  * @returns {string[] | null}
  */
-function templateNames(descriptor, filename) {
+export function templateNames(descriptor, filename) {
   const t = descriptor.template;
   if (!t || t.src || (t.lang && t.lang !== "html")) return null;
   const r = compileTemplate({ source: t.content, filename, id: "gosfc", compilerOptions: { prefixIdentifiers: true } });
@@ -421,7 +421,7 @@ function goScripts(code, from) {
  */
 
 /** The import path of the synthetic package of a block of filename. */
-function blockImportPath(mod, filename, pkgName) {
+export function blockImportPath(mod, filename, pkgName) {
   const relDir = path.relative(mod.dir, path.dirname(filename)).split(path.sep).join("/");
   return [mod.modulePath, relDir, "_gosfc", pkgName].filter(Boolean).join("/");
 }
@@ -626,7 +626,7 @@ export function placeholderSfc(code, filename) {
 }
 
 /** Summary.vue -> summary_vue */
-function packageName(filename) {
+export function packageName(filename) {
   let n = path.basename(filename).toLowerCase().replace(/[^a-z0-9_]/g, "_");
   if (!/^[a-z_]/.test(n)) n = "_" + n;
   return n;
@@ -639,19 +639,28 @@ function defaultsArg(synth) {
 }
 
 // propNames are the names Vue declares the Props fields as props by: the key
-// of the props object (json tag name or field name) with its leading capitals
-// lowered and camelized as Vue normalizes a declared name ("display-name" is
-// displayName), as readProps (runtime/convert.js) reads them. Vue matches the
-// kebab-case attributes to them too.
+// of the props object (the js tag, the json tag name or the field name) with
+// its leading capitals lowered and camelized as Vue normalizes a declared
+// name ("display-name" is displayName), as readProps (runtime/convert.js)
+// reads them. Vue matches the kebab-case attributes to them too.
 function propNames(synth) {
-  const names = (synth.propKeys ?? []).map((k) =>
-    k.replace(/^[A-Z]+(?=[A-Z][a-z]|$)|^[A-Z]/, (s) => s.toLowerCase()).replace(/-(\w)/g, (_, c) => c.toUpperCase()),
-  );
-  return [...new Set(names)].filter((n) => n !== "key" && n !== "ref");
+  return [...new Set(propFields(synth).map(([, name]) => name))];
+}
+
+/**
+ * The key of the props object and the prop name of each field of Props
+ * (see propNames), without the names Vue keeps for itself.
+ * @param {{ propKeys?: string[] }} synth
+ * @returns {[string, string][]}
+ */
+export function propFields(synth) {
+  return (synth.propKeys ?? [])
+    .map((k) => [k, k.replace(/^[A-Z]+(?=[A-Z][a-z]|$)|^[A-Z]/, (s) => s.toLowerCase()).replace(/-(\w)/g, (_, c) => c.toUpperCase())])
+    .filter(([, n]) => n !== "key" && n !== "ref");
 }
 
 // Identifiers that are valid in Go but cannot name a JavaScript binding.
-const JS_RESERVED = new Set([
+export const JS_RESERVED = new Set([
   "arguments", "await", "class", "catch", "debugger", "delete", "do", "enum", "eval", "export",
   "extends", "finally", "implements", "in", "instanceof", "interface", "let", "new", "null",
   "package", "private", "protected", "public", "static", "super", "this", "throw", "true", "false",
