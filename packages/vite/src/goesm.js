@@ -10,6 +10,9 @@
 //     -> <dir>/@goesm/runtime/*.ts               the goesm runtime
 //     -> <dir>/<import path>.d.ts                the exports of an entry (-dts, goesm
 //                                                 after v0.0.1-beta.7): the types of go: imports
+//     -> <dir>/<import path>.blocking.json       the functions of an entry that block, with
+//                                                 the chain of calls down to what waits (-blocking,
+//                                                 goesm after v0.0.1-beta.9)
 //     modules import each other and the runtime with relative "./x.ts" specifiers
 //     -> exit 1 and "<file>:<line>:<col>: <message> [<layer>]" on stderr
 //
@@ -23,7 +26,9 @@ import path from "node:path";
 import { run } from "./gomod.js";
 
 /**
- * @typedef {{ importPath: string, code: string, map: any, dts?: string }} GoModuleOutput
+ * @typedef {{ file: string, line: number, column: number, what: string }} BlockingStep
+ * @typedef {{ name: string, file: string, line: number, column: number, steps: BlockingStep[] }} BlockingFunc
+ * @typedef {{ importPath: string, code: string, map: any, dts?: string, blocking?: BlockingFunc[] }} GoModuleOutput
  * @typedef {{ file: string, code: string }} RuntimeFile
  * @typedef {{ file?: string, line?: number, column?: number, message: string, layer?: string }} GoDiagnostic
  * @typedef {{ ok: true, modules: GoModuleOutput[], runtime: RuntimeFile[] }
@@ -54,8 +59,10 @@ export async function emitTS(opts) {
     await writeFile(overlayFile, JSON.stringify({ Replace: replace }));
     const outDir = path.join(tmp, "out");
     const emit = (flags) => run(opts.goesm, ["emit-ts", ...flags, "-overlay", overlayFile, "-o", outDir, ...opts.patterns], { cwd: opts.moduleDir });
-    let r = await emit(["-dts"]);
-    // goesm v0.0.1-beta.7 and older write no declaration files.
+    let r = await emit(["-dts", "-blocking"]);
+    // goesm v0.0.1-beta.9 and older do not explain what blocks, and
+    // v0.0.1-beta.7 and older write no declaration files.
+    if (r.code !== 0 && /flag provided but not defined: -blocking/.test(r.stderr)) r = await emit(["-dts"]);
     if (r.code !== 0 && /flag provided but not defined: -dts/.test(r.stderr)) r = await emit([]);
     if (r.code !== 0) {
       return { ok: false, diagnostics: parseDiagnostics(r.stderr) };
@@ -68,9 +75,10 @@ export async function emitTS(opts) {
       if (!tsFile.endsWith(".ts")) continue;
       const importPath = path.relative(outDir, tsFile).split(path.sep).join("/").replace(/\.ts$/, "");
       const code = absoluteFileImports(stripSourceMapComment(await readFile(tsFile, "utf8")), tsFile, outDir);
-      const map = JSON.parse(await readFile(tsFile + ".map", "utf8"));
+      const map = absoluteSources(JSON.parse(await readFile(tsFile + ".map", "utf8")), tsFile);
       const dts = await readFile(tsFile.replace(/\.ts$/, ".d.ts"), "utf8").catch(() => undefined);
-      modules.push({ importPath, code, map, dts });
+      const why = await readFile(tsFile.replace(/\.ts$/, ".blocking.json"), "utf8").catch(() => undefined);
+      modules.push({ importPath, code, map, dts, blocking: why === undefined ? undefined : JSON.parse(why) });
     }
     const runtimeDir = path.join(outDir, "@goesm", "runtime");
     /** @type {RuntimeFile[]} */
@@ -149,6 +157,20 @@ export function absoluteFileImports(code, tsFile, outDir) {
 }
 
 /** @param {string} code */
+/**
+ * goesm after v0.0.1-beta.9 names the sources of its maps relative to the
+ * module's file, so that a moved tree keeps working. gosfc's output lives
+ * in a temporary directory, and the sources name the Go files it watches
+ * and shows in errors: they are made absolute again.
+ * @param {any} map
+ * @param {string} tsFile
+ */
+function absoluteSources(map, tsFile) {
+  const dir = path.dirname(tsFile);
+  if (Array.isArray(map.sources)) map.sources = map.sources.map((s) => (typeof s === "string" && !path.isAbsolute(s) && !s.startsWith("goesm/") ? path.resolve(dir, s) : s));
+  return map;
+}
+
 function stripSourceMapComment(code) {
   return code.replace(/\n?\/\/# sourceMappingURL=[^\n]*\n?$/, "\n");
 }
