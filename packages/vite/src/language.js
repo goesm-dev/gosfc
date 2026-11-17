@@ -24,7 +24,8 @@
 // with those of the go: imports (types.js); until the Go has been compiled
 // (or without the types file), they are any. The events are the ones gosfc
 // synth finds passed to the function vue.Emitter returns, with any
-// arguments. The bindings, which the template reads, are any.
+// arguments, and what the block exposes the names it passes to vue.Expose,
+// typed any. The bindings, which the template reads, are any.
 //
 // The language tools are synchronous, so the plugin runs gosfc synth
 // synchronously, as the Vite plugin does when it compiles the block (it
@@ -86,7 +87,7 @@ function lineCol(code, offset) {
  * @param {string} code
  * @param {string} filename
  * @param {import("@vue/compiler-sfc").SFCScriptBlock} block
- * @returns {{ importPath: string, synth: { bindings?: { name: string }[], props?: boolean, propKeys?: string[], emits?: string[] } } | null}
+ * @returns {{ importPath: string, synth: { bindings?: { name: string }[], props?: boolean, propKeys?: string[], emits?: string[], exposes?: string[] } } | null}
  */
 function readBlock(code, filename, block) {
   const mod = findGoModule(path.dirname(filename));
@@ -153,6 +154,7 @@ export function goView(code, filename, descriptor) {
       );
     }
     if (synth.emits?.length) lines.push(`defineEmits<{ ${synth.emits.map((e) => `${q(e)}: any[]`).join("; ")} }>();`);
+    if (synth.exposes?.length) lines.push(`defineExpose({} as { ${synth.exposes.map((e) => `${q(e)}: any`).join("; ")} });`);
     bindings = (synth.bindings ?? []).map((b) => b.name);
   } else {
     lines.push("defineProps<Record<string, any>>();");

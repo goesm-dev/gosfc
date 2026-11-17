@@ -76,5 +76,16 @@ test("vue package: Refs, Computeds, watchers, hooks, v-model, template refs, pro
   await page.click("button.bump");
   await waitText("button.bump", "1");
 
+  // vue.Expose: the parent calls what the child exposes through its template
+  // ref; a Ref reads as its value. Watchers run as their flush option says,
+  // and a js.Value is a watch source.
+  assert.equal(await text(".exp-el"), "SPAN");
+  await page.click("button.use-exposed");
+  await waitText("button.use-exposed", "exposer:++");
+  await waitText(".exp-count", "2");
+  await waitText(".exp-post", "2");
+  assert.equal(await text(".exp-pre"), "1");
+  assert.equal(await text(".exp-sync"), "2");
+
   assert.deepEqual(errors, []);
 });

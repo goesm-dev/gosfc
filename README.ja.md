@@ -157,8 +157,9 @@ vue.Watch(func() int { return seconds.Get() }, func(n int) { emit("tick", n) })
 
 * テンプレートにバインドした Ref は値として読め、どこで `Set` されても（別のパッケージからでも）追従します。Ref を Go パッケージに置いて、複数のコンポーネントで共有できます。すべてのコンポーネントの Go（と JavaScript が `go:` でインポートするパッケージ）は、Go のバイナリのパッケージと同じく 1 つの goesm プログラムなので、パッケージの変数はアプリ全体で 1 組です。ただし、別々に動くブラウザとサーバーで 1 組ずつです。ブラウザのプログラムには、サーバーだけで動く Go（`.astro` の Go のフロントマター、TypeScript のフロントマターの `go:` インポート、`@gosfc/astro` ではエンドポイント・ミドルウェア・アクションの `go:` インポート）を入れません。そのため、その Go が使うものでブラウザのバンドルが大きくなりません。`v-model` と `ref="..."` は `Set` で書き込みます。
 * テンプレートから呼んだ Go 関数は、その中で読んだ Ref が変わると再実行されます。
-* `vue.NewComputed` はキャッシュされる派生値を作ります。`vue.Watch` と `vue.WatchEffect` は副作用を実行し、コンポーネントの props が変わったときにも再実行されます。
-* `vue.OnMounted`、`OnBeforeUnmount`、`OnUnmounted` と `vue.Emitter` は setup 中のコンポーネントに結び付くので、ブロックのトップレベルで呼びます。`ModelValue` の props と `emit("update:modelValue", v)` で、コンポーネントが `v-model` に対応します。
+* `vue.NewComputed` はキャッシュされる派生値を作ります。`vue.Watch` と `vue.WatchEffect` は副作用を実行し、コンポーネントの props が変わったときにも再実行されます。`vue.Flush("post")` を渡すと Vue がページを更新した後に、`vue.Flush("sync")` なら `Set` のたびにすぐ実行します（`vue.Watch(src, cb, vue.Flush("post"))`）。Vue と同じく標準は `"pre"` です。`Watch` のソースはどの型でもかまいません。値は `==` で、`js.Value` は `Equal` で比べ、比べられない値（スライス、マップ、関数）は毎回新しい値とみなします。`Ref` の `Set` も同じように比べます。
+* `vue.Expose("Focus", Focus)` は、`defineExpose` と同じく、親がテンプレート ref から使えるプロパティを足します。関数は呼べて（イベントハンドラと同じくコンポーネントを再レンダーします）、`Ref` と `Computed` は今の値として読め、ほかの値は読むときに goesm が Go から JavaScript に渡す値と同じく変換されます。何も公開しないコンポーネントは、`<script setup>` と同じく閉じています。vue-tsc には公開した名前が `any` 型で見えます。
+* `vue.OnMounted`、`OnBeforeUnmount`、`OnUnmounted`、`vue.Emitter`、`vue.Expose` は setup 中のコンポーネントに結び付くので、ブロックのトップレベルで呼びます。`ModelValue` の props と `emit("update:modelValue", v)` で、コンポーネントが `v-model` に対応します。
 * goesm のビルド以外（`go test`）では、Ref と Computed は値を保持・計算し、ウォッチャーとフックは実行されません。
 * gosfc には goesm v0.0.1-beta.6 以降が必要です。`any` に入ったハンドルがメソッドを持ち、複数のパッケージを 1 つのプログラムとしてビルドでき、アプリのほかの関数値がブロックしても、コンポーネントの関数変数 (`update := func() {...}`) で setup が async にならない版です。
 

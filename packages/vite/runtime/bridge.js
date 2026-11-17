@@ -42,6 +42,14 @@ export function useGo(setup, _version, props, defaults, declared) {
   const changed = () => {
     if (!getCurrentInstance()) version.value++;
   };
+  // What vue.Expose adds the component's public instance (defineExpose of
+  // the glue), shown as the template is shown a value.
+  const exposed = {};
+  const current = getCurrentInstance();
+  if (current) {
+    current.gosfcExposed = exposed;
+    current.gosfcShow = (v) => toTemplate(v, changed);
+  }
   let lookup;
   if (props) {
     const attrs = useAttrs();
@@ -72,6 +80,7 @@ export function useGo(setup, _version, props, defaults, declared) {
     lookup = setup();
   }
   return {
+    exposed,
     /** @param {string} name */
     binding(name) {
       const read = () => {

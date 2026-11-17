@@ -141,6 +141,7 @@ Only one change was made on the goesm side for this PoC: adding `-overlay` to `b
 * A Go function called while Vue renders does not advance the version: it would invalidate what the render is reading and make it run again forever.
 * With `type Props`, the bridge watches the attributes and passes new props through the lookup's `gosfc:props` setter, then advances the version and a props version that the `vue` package's watchers and computeds made during setup also read.
 * `vue.Emitter` captures the instance's `emit` during setup.
+* The glue ends with `defineExpose(__gosfc.exposed)`: the bridge gives the instance an empty object, and `vue.Expose` adds a getter to it for each name, which shows the value as a binding's value is shown (functions report a change when called). synth reports the names passed to `vue.Expose` as string literals (`exposes`) for the view of §13.
 * A Go function receives only as many arguments as it declares. The DOM event passed by `@click="Increment"` is not passed to `func Increment()`. Its arguments are converted by the ABI, structs and slices included, and a final `error` result is thrown. For a blocking Go function (one that returns a Promise), the update happens after it resolves.
 
 ## 7. Source maps and diagnostics
