@@ -13,15 +13,19 @@
 //     (An event handler may block: the bridge reads the bindings again when
 //     its Promise settles.)
 //
-// goesm reports which functions are async only in its output, so the check
-// reads the lowered TypeScript of the block's package: GosfcSetup, or the
-// closure of a binding the template calls, is async. The error names the
-// chain of calls that blocks, from the first await of each function on:
-// the await's position in the source map, and the function it awaits,
-// looked up in the module (a function of the package) or in the module of
-// the import it names (a function of another package), until a call into
-// the standard library or a call the module does not show (a method called
-// through an interface, a function value).
+// The check reads the lowered TypeScript of the block's package: GosfcSetup,
+// or the closure of a binding the template calls, is async. The error names
+// the chain of calls that blocks. goesm after v0.0.1-beta.9 explains it
+// (goesm emit-ts -blocking): the chain goes down to the operation that
+// waits, through the standard library and the calls of interface methods
+// and function values, naming a method or function that blocks among those
+// such a call may reach. With an older goesm, the chain is read from the
+// output, from the first await of each function on: the await's position in
+// the source map, and the function it awaits, looked up in the module (a
+// function of the package) or in the module of the import it names (a
+// function of another package), until a call into the standard library or
+// a call the module does not show (a method called through an interface, a
+// function value).
 
 import { readFileSync } from "node:fs";
 import path from "node:path";
@@ -30,7 +34,9 @@ import { parseAst } from "vite";
 
 /**
  * @typedef {import("./goesm.js").GoModuleOutput} GoModuleOutput
- * @typedef {{ file: string, line: number, column: number, text: string }} Step
+ * @typedef {{ file: string, line: number, column: number, text: string, what?: string }} Step
+ *   text: the line of Go; what: goesm's explanation of the step, when it
+ *   names a callee the line does not show
  */
 
 /**
@@ -54,8 +60,9 @@ export function blockingCalls({ importPath, modules, descriptor, bindings }) {
   if (!mod) return [];
   const setup = mod.functions.get("GosfcSetup");
   if (!setup) return [];
+  const why = own.blocking ? new Why(own.blocking) : null;
   const out = [];
-  if (setup.async) out.push({ chain: program.chain(mod, setup) });
+  if (setup.async) out.push({ chain: why?.named("GosfcSetup") ?? program.chain(mod, setup) });
   // The closures of the bindings: Name = async (...) => {...} in the setup.
   const closures = new Map();
   walk(setup.body, (n) => {
@@ -64,7 +71,9 @@ export function blockingCalls({ importPath, modules, descriptor, bindings }) {
   const names = new Set(bindings.filter((b) => closures.get(b)?.async));
   if (names.size) {
     for (const { name, offset } of renderCalls(descriptor, names)) {
-      out.push({ offset, call: name, chain: program.chain(mod, closures.get(name), closures) });
+      const closure = closures.get(name);
+      const at = why && mod.step(closure.start);
+      out.push({ offset, call: name, chain: (at && why.literal(at)) ?? program.chain(mod, closure, closures) });
     }
   }
   return out;
@@ -93,6 +102,64 @@ function renderCalls(descriptor, names) {
   };
   visit(t.ast);
   return out;
+}
+
+/** goesm's explanations of the functions of a package that block. */
+class Why {
+  /** @param {import("./goesm.js").BlockingFunc[]} funcs */
+  constructor(funcs) {
+    this.funcs = funcs;
+    /** @type {Map<string, string[] | null>} */
+    this.files = new Map();
+  }
+
+  /** The chain of the package's function name. @returns {Step[] | null} */
+  named(name) {
+    const f = this.funcs.find((f) => f.name === name || f.name.endsWith("." + name));
+    return f ? this.steps(f) : null;
+  }
+
+  /**
+   * The chain of the function literal at a position: the one on its line
+   * nearest to it (the source map places a closure at or next to its func).
+   * @param {Step} at
+   * @returns {Step[] | null}
+   */
+  literal(at) {
+    let best = null;
+    for (const f of this.funcs) {
+      if (f.name !== "" || f.file !== at.file || f.line !== at.line) continue;
+      if (!best || Math.abs(f.column - at.column) < Math.abs(best.column - at.column)) best = f;
+    }
+    return best ? this.steps(best) : null;
+  }
+
+  /** @param {import("./goesm.js").BlockingFunc} f @returns {Step[]} */
+  steps(f) {
+    return f.steps.map((s) => {
+      const step = { file: s.file, line: s.line, column: s.column, text: this.line(s.file, s.line) };
+      // A callee the line does not show (a method or a function a call of
+      // an interface method or a function value may reach, what a function
+      // variable or a parameter holds), or a line that cannot be read.
+      if (!step.text || /, which may be |that holds /.test(s.what)) step.what = s.what;
+      return step;
+    });
+  }
+
+  /** A line of a file, trimmed (empty when it cannot be read). */
+  line(file, line) {
+    if (!this.files.has(file)) {
+      let lines = null;
+      try {
+        lines = readFileSync(file, "utf8").split("\n");
+      } catch {
+        // A file goesm names relative to its own tree (its patches of the
+        // standard library): the step has no line.
+      }
+      this.files.set(file, lines);
+    }
+    return (this.files.get(file)?.[line - 1] ?? "").trim();
+  }
 }
 
 /** The lowered modules, parsed as they are needed. */

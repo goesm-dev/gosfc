@@ -199,10 +199,12 @@ n := slow.Load()
   const file = component("TmpBlockingSetup.vue", source);
   const e = await compileError(file, source);
   assert.equal(e.name, "GosfcError");
-  assert.deepEqual([e.loc.line, e.loc.column], [8, 1]);
+  // At the statement, or at the call with goesm's explanation (goesm emit-ts -blocking).
+  assert.equal(e.loc.line, 8);
+  assert.ok([1, 6].includes(e.loc.column), String(e.loc.column));
   assert.match(
     e.message,
-    /^src\/TmpBlockingSetup\.vue:8:1: the Go block blocks while the component is set up, which Vue cannot wait for:\n {4}src\/TmpBlockingSetup\.vue:8: n := slow\.Load\(\)\n {4}src\/slow\/slow\.go:7: return wait\(\)\n {4}src\/slow\/slow\.go:11: time\.Sleep\(time\.Millisecond\)\n {2}Run what blocks in a goroutine/,
+    /^src\/TmpBlockingSetup\.vue:8:[16]: the Go block blocks while the component is set up, which Vue cannot wait for:\n {4}src\/TmpBlockingSetup\.vue:8: n := slow\.Load\(\)\n {4}src\/slow\/slow\.go:7: return wait\(\)\n {4}src\/slow\/slow\.go:11: time\.Sleep\(time\.Millisecond\)(?:\n {4}\S*sleep\.go:\d+: receives from a channel)?\n {2}Run what blocks in a goroutine/,
   );
 });
 
@@ -230,11 +232,83 @@ func Late() int {
       [2, 25],
     ],
   );
-  assert.match(e.errors[0].message, /^Late blocks, and the template calls it while it renders, which cannot wait for it:\n {4}src\/TmpBlockingCall\.vue:10: time\.Sleep\(time\.Millisecond\)\n {2}A Go function the template calls must return at once/);
+  assert.match(e.errors[0].message, /^Late blocks, and the template calls it while it renders, which cannot wait for it:\n {4}src\/TmpBlockingCall\.vue:10: time\.Sleep\(time\.Millisecond\)(?:\n {4}\S*sleep\.go:\d+: receives from a channel)?\n {2}A Go function the template calls must return at once/);
 
   // An event handler may block: the bindings are read again when it returns.
   const handler = source.replace(`  <p :title="Late()">{{ Late() + 1 }}</p>\n`, "");
   await compileSfc(handler, component("TmpBlockingHandler.vue", handler), { root: app });
+});
+
+test("the blocking chain goes on through interface methods and function values (goesm emit-ts -blocking)", async () => {
+  const source = `<template>
+  <p>{{ n }} {{ Label() }}</p>
+</template>
+
+<script setup lang="go">
+import "example.com/fixture/src/slowdyn"
+
+n := slowdyn.First()
+
+func Label() string { return slowdyn.Run() }
+</script>
+`;
+  const file = component("TmpBlockingDynamic.vue", source);
+  const e = await compileError(file, source);
+  // At the statement, or at the call with goesm's explanation (goesm emit-ts -blocking).
+  assert.equal(e.loc.line, 8);
+  assert.ok([1, 6].includes(e.loc.column), String(e.loc.column));
+  const setup = e.errors[0].message;
+  assert.match(setup, /^the Go block blocks while the component is set up, which Vue cannot wait for:\n {4}src\/TmpBlockingDynamic\.vue:8: n := slowdyn\.First\(\)\n {4}src\/slowdyn\/slowdyn\.go:25: func First\(\) int \{ return Sources\[0\]\.Next\(\) \}/);
+  // goesm after v0.0.1-beta.9 explains the calls its output does not show:
+  // the method of the interface, down to what waits in the standard library.
+  if (/\(calls the method/.test(setup)) {
+    assert.match(
+      setup,
+      /slowdyn\.go:25: func First\(\) int \{ return Sources\[0\]\.Next\(\) \} \(calls the method Next of slowdyn\.Source, which may be \(slowdyn\.ticker\)\.Next\)\n {4}src\/slowdyn\/slowdyn\.go:13: time\.Sleep\(time\.Millisecond\)\n {4}\S*sleep\.go:\d+: receives from a channel\n {2}Run what blocks/,
+    );
+  }
+  // A Go function the template calls: the function value Run calls.
+  const call = e.errors[1].message;
+  assert.match(call, /^Label blocks, and the template calls it while it renders, which cannot wait for it:\n {4}src\/TmpBlockingDynamic\.vue:10: func Label\(\) string \{ return slowdyn\.Run\(\) \}\n {4}src\/slowdyn\/slowdyn\.go:31: func Run\(\) string \{ return Hook\(\) \}/);
+  if (/\(calls a function value/.test(call)) {
+    assert.match(
+      call,
+      /slowdyn\.go:31: func Run\(\) string \{ return Hook\(\) \} \(calls a function value of type func\(\) string, which may be slowdyn\.slowHook\)\n {4}src\/slowdyn\/slowdyn\.go:39: time\.Sleep\(time\.Millisecond\)\n {4}\S*sleep\.go:\d+: receives from a channel\n {2}A Go function the template calls/,
+    );
+  }
+});
+
+test("blockingCalls takes the chain from goesm's explanation when there is one", async () => {
+  const { blockingCalls } = await import("../packages/vite/src/blocking.js");
+  const { parse } = await import("vue/compiler-sfc");
+  const file = path.join(app, "src/slowdyn/slowdyn.go");
+  const at = (line, column) => ({ file, line, column });
+  const modules = [
+    {
+      importPath: "example.com/fixture/src/_gosfc/x_vue",
+      code: "async function GosfcSetup(props) {\n  await First();\n}\nexport { GosfcSetup };\n",
+      map: { version: 3, sources: [], names: [], mappings: "" },
+      blocking: [
+        {
+          name: "x_vue.GosfcSetup",
+          ...at(1, 1),
+          steps: [
+            { ...at(25, 27), what: "calls the method Next of slowdyn.Source, which may be (slowdyn.ticker).Next" },
+            { ...at(13, 2), what: "calls time.Sleep" },
+            { file: "goesm/natives/patch/time/sleep.go", line: 56, column: 2, what: "receives from a channel" },
+          ],
+        },
+      ],
+    },
+  ];
+  const { descriptor } = parse("<template><p /></template>\n");
+  const [b] = blockingCalls({ importPath: modules[0].importPath, modules, descriptor, bindings: [] });
+  assert.deepEqual(b.chain, [
+    { ...at(25, 27), text: "func First() int { return Sources[0].Next() }", what: "calls the method Next of slowdyn.Source, which may be (slowdyn.ticker).Next" },
+    { ...at(13, 2), text: "time.Sleep(time.Millisecond)" },
+    // A file of goesm's own tree: the step says what it does.
+    { file: "goesm/natives/patch/time/sleep.go", line: 56, column: 2, text: "", what: "receives from a channel" },
+  ]);
 });
 
 test(".astro: a ---go frontmatter becomes TypeScript, <script lang=go> a module import", async () => {

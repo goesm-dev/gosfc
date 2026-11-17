@@ -172,7 +172,8 @@ function blockingError(blocked, filename, code, tagOffset, root) {
     const r = path.relative(root, f);
     return r.startsWith("..") ? f : r.split(path.sep).join("/");
   };
-  const chain = (steps) => steps.map((s) => `\n    ${rel(s.file)}:${s.line}: ${s.text}`).join("");
+  const chain = (steps) =>
+    steps.map((s) => `\n    ${rel(s.file)}:${s.line}: ${[s.text, s.what && (s.text ? `(${s.what})` : s.what)].filter(Boolean).join(" ")}`).join("");
   return new GosfcError(
     blocked.map((b) => {
       if (b.call) {
