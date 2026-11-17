@@ -128,10 +128,12 @@ export async function compileSfc(code, filename, opts) {
     ? [
         "",
         `import { GosfcSetup as __gosfc_setup, GosfcProps as __gosfc_props } from ${JSON.stringify("go:" + importPath)};`,
-        `import { useGo as __gosfc_useGo } from ${JSON.stringify(RUNTIME_ID)};`,
+        `import { useGo as __gosfc_useGo, propOptions as __gosfc_propOptions } from ${JSON.stringify(RUNTIME_ID)};`,
         // The Props fields are declared as Vue props, so that the other
-        // attributes (class, style, listeners) fall through to the root element.
-        `const __gosfc_in = defineProps(${JSON.stringify(propNames(synth))});`,
+        // attributes (class, style, listeners) fall through to the root
+        // element: a bool field as a Boolean prop, a field with a default
+        // tag with its default (the bridge reads the zero Props value).
+        `const __gosfc_in = defineProps(__gosfc_propOptions(__gosfc_props, ${JSON.stringify(propNames(synth))}${defaultsArg(synth)}));`,
         `const __gosfc = __gosfc_useGo(__gosfc_setup, ${version}, __gosfc_props${defaultsArg(synth) || ", undefined"}, __gosfc_in);`,
       ]
     : [

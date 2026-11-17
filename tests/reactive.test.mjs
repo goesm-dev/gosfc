@@ -65,6 +65,11 @@ test("vue package: Refs, Computeds, watchers, hooks, v-model, template refs, fun
   // Prop defaults: a field's default tag fills a prop the parent leaves out.
   assert.equal(await text(".child .size"), "20");
   assert.equal(await page.locator(".child .label").nth(1).textContent(), "defaults");
+  // The Vue props are typed: a bool field is a Boolean prop, so a bare
+  // attribute is true and a missing one false, and Vue applies the default
+  // tag (the template reads the Vue props open and size directly).
+  assert.equal(await page.locator(".child .vue-props").nth(0).textContent(), "false false 20");
+  assert.equal(await page.locator(".child .vue-props").nth(1).textContent(), "true true 20");
   // A prop whose json key is hyphenated.
   assert.equal(await page.locator(".child .note").nth(1).textContent(), "noted");
 

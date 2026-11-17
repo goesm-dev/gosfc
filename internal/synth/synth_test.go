@@ -205,6 +205,9 @@ type Props struct {
 	Skip string `+"`json:\"-\"`"+`
 	ID int `+"`json:\"id\" js:\"ID\"`"+`
 	Gone string `+"`json:\"gone\" js:\"-\"`"+`
+	Note string `+"`json:\"note,omitempty\"`"+`
+	Max *int
+	Min string `+"`js:\"min,omitempty\" json:\"lo\"`"+`
 }
 
 upper := strings.ToUpper(props.Route)
@@ -234,8 +237,13 @@ upper := strings.ToUpper(props.Route)
 	}
 	// The keys of the exported fields, which the glue declares as props.
 	// A js tag names the field as goesm's JS calling ABI does.
-	if want := []string{"Route", "n", "Size", "Gap", "Label", "ID"}; !reflect.DeepEqual(out.PropKeys, want) {
+	if want := []string{"Route", "n", "Size", "Gap", "Label", "ID", "note", "Max", "min"}; !reflect.DeepEqual(out.PropKeys, want) {
 		t.Errorf("keys %v, want %v", out.PropKeys, want)
+	}
+	// The fields the parent may leave out: a default tag, omitempty (of the
+	// tag that names the key) or a pointer.
+	if want := []string{"Size", "Gap", "Label", "note", "Max", "min"}; !reflect.DeepEqual(out.PropOptional, want) {
+		t.Errorf("optional %v, want %v", out.PropOptional, want)
 	}
 
 	out = build(t, "type Props int\n")

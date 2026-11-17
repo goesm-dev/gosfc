@@ -104,7 +104,7 @@ export default { plugins: [gosfc(), vue()] };
   </script>
   ```
 * `type` と `const` の宣言、メソッド（`func (t Tag) Label() string`）は、ブロックのパッケージのパッケージレベルで宣言されます。`Props` やメソッドはブロックの型を使えます。メソッドから見えるのはパッケージの名前（インポート、型、定数）で、setup の変数は見えません。ジェネリック関数は Go パッケージに置いてください。
-* props を受け取るには `type Props struct {...}` を宣言します。ブロックの中でその型の `props` 変数が使えます。フィールド `Route` は属性 `route`（`js` タグか `json` タグがあればその名前、または kebab-case の形）から読み、フィールドの型に変換します。文字列、bool、数値のほか、struct、スライス、ポインタ（`null` は nil）、関数も goesm の ABI のとおりに変換します。フィールドの `default:"..."` タグは、親が渡さなかった props の値になります。親が新しい props を渡すと `props` が置き換わり、テンプレート（`{{ props.Title }}`）も読み直します。フィールドは Vue の props として宣言されるので、ほかの属性（`class`、`style`、リスナー）は普通どおりルート要素にフォールスルーします。
+* props を受け取るには `type Props struct {...}` を宣言します。ブロックの中でその型の `props` 変数が使えます。フィールド `Route` は属性 `route`（`js` タグか `json` タグがあればその名前、または kebab-case の形）から読み、フィールドの型に変換します。文字列、bool、数値のほか、struct、スライス、ポインタ（`null` は nil）、関数も goesm の ABI のとおりに変換します。フィールドの `default:"..."` タグは、親が渡さなかった props の値になります。フィールドは型付きの Vue の props として宣言されます。`bool` のフィールドは `Boolean` の prop（`<Dialog open />` は true、属性がなければ false）で、`default` タグのあるフィールドはその値が標準値になります。テンプレートや `$props` から読んでも同じです。親が新しい props を渡すと `props` が置き換わり、テンプレート（`{{ props.Title }}`）も読み直します。フィールドは Vue の props として宣言されるので、ほかの属性（`class`、`style`、リスナー）は普通どおりルート要素にフォールスルーします。
 
   ```vue
   <script setup lang="go">
@@ -303,7 +303,7 @@ function onRated(stars: number) {
 </script>
 ```
 
-* props は `type Props struct` のフィールドで、コンポーネントが宣言する名前（`label`、`max`、`json:"note-text"` タグのフィールドなら `noteText`）になり、どれも省略できます。型は goesm がフィールドに付ける型です（`<Rating :max="'three'" />` は `error TS2322: Type 'string' is not assignable to type 'number'` になります）。前の節の型ファイルから読むので、そのファイルを TypeScript のプロジェクトに含めてください。Go を一度コンパイルする（開発サーバー、ビルド、`astro sync`、`astro check`）までは、props は `any` です。
+* props は `type Props struct` のフィールドで、コンポーネントが宣言する名前（`label`、`max`、`json:"note-text"` タグのフィールドなら `noteText`）になります。フィールドに `default` タグがある、`js` か `json` タグに `omitempty` がある、または型が nil を持つ（ポインタ、スライス、マップ、関数、インターフェース：`null`）か `bool` なら、その prop は省略できます。ほかの props は必須です（`label` のない `<Rating max="3" />` は `error TS2345` になります）。型は goesm がフィールドに付ける型です（`<Rating :max="'three'" />` は `error TS2322: Type 'string' is not assignable to type 'number'` になります）。前の節の型ファイルから読むので、そのファイルを TypeScript のプロジェクトに含めてください。Go を一度コンパイルする（開発サーバー、ビルド、`astro sync`、`astro check`）までは、props は `any` です。
 * イベントは、`vue.Emitter()` が返す関数にブロックが文字列リテラルで渡す名前で、引数は `any` です。
 * Go のコンポーネントのテンプレートは、Go ブロックのバインディングを `any` 型として読みます。ブロックが宣言していない名前はエラーになります。
 
