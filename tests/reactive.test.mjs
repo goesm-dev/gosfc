@@ -13,7 +13,7 @@ import { createServer } from "vite";
 const root = fileURLToPath(new URL("./fixtures/app/", import.meta.url));
 const chromium = process.env.CHROMIUM ?? "/opt/pw-browsers/chromium";
 
-test("vue package: Refs, Computeds, watchers, hooks, v-model, template refs, props and emits", { skip: !existsSync(chromium) && "no Chromium" }, async (t) => {
+test("vue package: Refs, Computeds, watchers, hooks, v-model, template refs, function refs, props and emits", { skip: !existsSync(chromium) && "no Chromium" }, async (t) => {
   const { chromium: pw } = await import("playwright-core");
   const server = await createServer({ root, configFile: false, logLevel: "silent", plugins: [gosfc(), vue()], server: { port: 0 } });
   await server.listen();
@@ -75,6 +75,18 @@ test("vue package: Refs, Computeds, watchers, hooks, v-model, template refs, pro
   // A Go function held by a Ref updates the bindings it changes.
   await page.click("button.bump");
   await waitText("button.bump", "1");
+
+  // A function ref calls Go while Vue patches the page: the call does not
+  // render the component again, which would call the ref again, forever.
+  assert.equal(await text(".fref-calls"), "0");
+  assert.equal(await text(".fref-tags"), "[]");
+  await page.click("button.fref-bump");
+  await waitText("button.fref-bump", "1");
+  assert.equal(await text(".fref-calls"), "1");
+  assert.equal(await text(".fref-tags"), '[\n  "P"\n]');
+  await page.click("button.fref-bump");
+  await waitText("button.fref-bump", "2");
+  assert.equal(await text(".fref-calls"), "2");
 
   assert.deepEqual(errors, []);
 });
