@@ -22,7 +22,7 @@
 // them again whenever they change: the bindings are then read again, and
 // watchers and computeds made with the vue package during setup re-run.
 
-import { computed, getCurrentInstance, shallowRef, triggerRef, useAttrs, watch } from "vue";
+import { computed, getCurrentInstance, onBeforeMount, onBeforeUpdate, onMounted, onUpdated, shallowRef, triggerRef, useAttrs, watch } from "vue";
 import { propNames, propValue, readProps } from "gosfc:convert.js";
 import { toTemplate, unview } from "gosfc:handles.js";
 
@@ -36,12 +36,32 @@ import { toTemplate, unview } from "gosfc:handles.js";
  */
 export function useGo(setup, _version, props, defaults, declared) {
   const version = shallowRef(0);
-  // A Go function called while Vue renders (a call in the template) must
-  // not invalidate what the render reads, or the render would run again
-  // forever; any other call (an event handler) may have changed Go state.
+  // A Go function called while Vue renders the component (a call in the
+  // template) or patches the page with what it rendered (a function ref,
+  // :ref="(el) => SetEl(el)") must not invalidate what the render read: the
+  // render would run again, and call the function again, forever. Any other
+  // call (an event handler) may have changed Go state. Vue sets no current
+  // instance while it patches, so the patch is the time from the hooks
+  // before the component mounts or updates to the hooks after (or, should
+  // they not run because the render failed, to the end of the task: Vue
+  // patches synchronously, and event handlers run in tasks of their own).
+  let patching = false;
   const changed = () => {
-    if (!getCurrentInstance()) version.value++;
+    if (!patching && !getCurrentInstance()) version.value++;
   };
+  if (getCurrentInstance()) {
+    const end = () => {
+      patching = false;
+    };
+    const start = () => {
+      patching = true;
+      queueMicrotask(end);
+    };
+    onBeforeMount(start);
+    onBeforeUpdate(start);
+    onMounted(end);
+    onUpdated(end);
+  }
   let lookup;
   if (props) {
     const attrs = useAttrs();
