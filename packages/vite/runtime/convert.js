@@ -11,9 +11,9 @@
 // function instead.
 //
 // A block that declares `type Props struct {...}` receives its props as a
-// Props value, which the ABI fills from a plain object keyed like
-// encoding/json (the json tag name, or the field name). Field Route is also
-// read from the prop `route`, and from its kebab-case form.
+// Props value, which the ABI fills from a plain object keyed by the js tag,
+// or else like encoding/json (the json tag name, or the field name). Field
+// Route is also read from the prop `route`, and from its kebab-case form.
 
 const noop = () => {};
 

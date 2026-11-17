@@ -1,6 +1,7 @@
 // The PoC end to end: Astro -> @astrojs/vue -> @gosfc/vite -> goesm -> Vite,
 // for Vue components with Go and for .astro files with Go.
 import assert from "node:assert/strict";
+import { execFile } from "node:child_process";
 import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { createServer as createHttpServer } from "node:http";
 import { createRequire } from "node:module";
@@ -74,6 +75,38 @@ test("astro build: Go frontmatter bindings, Props and JS imports in .astro files
   const js = readFileSync(path.join(outDir, src), "utf8");
   assert.match(js, /go-counter/);
   assert.doesNotMatch(html, /lang="go"|---go|syscall\/js/);
+});
+
+test("astro check and vue-tsc: a TypeScript component imports Go components", async (t) => {
+  // examples/astro/tsconfig.json names the Vue language plugin of
+  // @gosfc/astro and leaves the .astro files with Go out of astro check.
+  const file = path.join(example, "src", "features", "cart", "TmpCart.vue");
+  writeFileSync(
+    file,
+    `<template>
+  <section><h2>{{ title }}</h2><Summary /><Counter /></section>
+</template>
+
+<script setup lang="ts">
+import Summary from "./Summary.vue";
+import Counter from "../counter/Counter.vue";
+const title: string = "Cart";
+</script>
+`,
+  );
+  t.after(() => rmSync(file, { force: true }));
+  const bin = (name) => path.join(example, "node_modules", ".bin", name);
+  const run = (cmd, args) =>
+    new Promise((resolve) => {
+      execFile(cmd, args, { cwd: example }, (err, stdout, stderr) => resolve({ code: err ? Number(err.code) : 0, out: stdout + stderr }));
+    });
+  // astro check runs astro sync, which writes the types of the Go components.
+  let r = await run(bin("astro"), ["check"]);
+  assert.equal(r.code, 0, r.out);
+  const types = readFileSync(path.join(example, ".astro", "integrations", "_gosfc_astro", "go-imports.d.ts"), "utf8");
+  assert.match(types, /^declare module "go:(\*"|example\.com\/app\/src\/features\/cart\/_gosfc\/summary_vue" \{)/m);
+  r = await run(process.execPath, [createRequire(path.join(example, "package.json")).resolve("vue-tsc/bin/vue-tsc.js"), "--noEmit"]);
+  assert.equal(r.code, 0, r.out);
 });
 
 test("astro build: <script lang=go> runs in the browser", { skip: !existsSync(chromium) && "no Chromium" }, async (t) => {

@@ -42,14 +42,16 @@ internal/synth/     <script setup lang="go"> (and the Go of .astro files) → sy
 packages/vite/      @gosfc/vite: the Vite plugin. src/compile.js is the core of the SFC and .astro transforms,
                     src/program.js keeps the Go of the app as one goesm program per environment,
                     src/goesm.js is the only boundary with goesm, runtime/bridge.js handles template bindings,
-                    runtime/astro.js the bindings of a Go frontmatter, runtime/convert.js the binding values and props of both
-packages/astro/     @gosfc/astro: an integration that only configures @gosfc/vite (+ @astrojs/vue if installed)
+                    runtime/astro.js the bindings of a Go frontmatter, runtime/convert.js the binding values and props of both,
+                    src/language.js (vue-language-plugin.cjs) the TypeScript view of Go components for vue-tsc (§13)
+packages/astro/     @gosfc/astro: an integration that only configures @gosfc/vite (+ @astrojs/vue if installed),
+                    and re-exports its Vue language plugin
 examples/astro/     The PoC (Astro → Vue → gosfc → goesm → Vite), and an .astro page written in Go
 examples/astro-go/  Go in .astro files only, without Vue installed
 tests/              Node tests (Astro build, Vite build / SSR / HMR, diagnostics) and fixtures
 ```
 
-There is no separate `core` package. For now the Vite plugin is the only consumer, so `packages/vite/src/compile.js` plays the role of the core. It will be split out once a formatter or language server needs the same processing.
+There is no separate `core` package. `packages/vite/src/compile.js` plays the role of the core: the Vite plugin and the Vue language plugin (§13) use it from the same package. It will be split out once a formatter or language server needs the same processing.
 
 ## 3. Processing flow
 
@@ -104,7 +106,7 @@ return func(gosfcBinding string) any {
 * A `var` or a function without a body preceded by goesm's `//goesm:import` directive (a Vue component, a TypeScript function, any value of an ES module) is declared at package level with its directive, which is placed right before it with a `//line` directive giving the declaration's own position (a `//line` between them would end the doc comment goesm reads). goesm resolves a relative module against the `.vue` file named by the `//line` directive, and `@gosfc/vite` turns its import of that file into an absolute path, which Vite loads like any other module. A `js.Value` binding reaches the template as the value it holds, so a component works as `<Badge />`.
 * The returned lookup function is the entry point for template bindings. `GosfcSetup` is an exported function of the component's package, so goesm's [JS calling ABI](https://github.com/goesm-dev/goesm/blob/main/docs/js-exports.md) converts the lookup function's argument and results: each value reaches JavaScript converted by its dynamic type. The lookup returns only the bindings the template uses: `@gosfc/vite` compiles the template with `@vue/compiler-sfc` and passes synth the names it reads from the setup scope (`_ctx.x`, the components and directives it resolves, static `ref="..."` values, and the identifiers of `v-bind()` in `<style>`) as `used`. The glue declares only those, so goesm can drop or inline the rest. (When the template cannot be compiled, or is not HTML, every binding is used.) The others are still referenced as `_ = x`, so a variable used only from the template does not trigger Go's "declared and not used" error. Unused imports are a Go error as usual.
 * The package is placed in `_gosfc/<name>_vue/` under the same directory as the `.vue` file; this directory does not exist on disk (it is passed through goesm's overlay). The import path therefore becomes `<module>/<dir>/_gosfc/<name>_vue`, and `internal/` visibility works relative to the `.vue` file's location, just as in ordinary Go. Nothing is written to the user's source tree.
-* When the block declares `type Props struct {...}`, that type is placed at package level and the setup function becomes `func GosfcSetup(props Props)`. gosfc also generates `func GosfcProps() any { return Props{} }`, which reaches JavaScript as a plain object with the fields' JSON names; the glue declares the fields as Vue props (`defineProps([...])`, with the names synth reports as `propKeys`, leading capitals lowered), and the bridge fills a copy of the object from those props (and from attributes spelled as the Go field names) and passes it to the setup function, whose ABI converts it to Props. Other attributes (`class`, `style`, listeners) fall through to the root element as in any Vue component. The types of Props fields are limited to imported types and built-in types (because types in the block have not been declared yet).
+* When the block declares `type Props struct {...}`, that type is placed at package level and the setup function becomes `func GosfcSetup(props Props)`. gosfc also generates `func GosfcProps() any { return Props{} }`, which reaches JavaScript as a plain object keyed as goesm's ABI names the fields (the `js` tag, or else the JSON name); the glue declares the fields as Vue props (`defineProps([...])`, with the names synth reports as `propKeys`, leading capitals lowered), and the bridge fills a copy of the object from those props (and from attributes spelled as the Go field names) and passes it to the setup function, whose ABI converts it to Props. Other attributes (`class`, `style`, listeners) fall through to the root element as in any Vue component. The types of Props fields are limited to imported types and built-in types (because types in the block have not been declared yet).
 * gosfc does not parse Go. `internal/synth` tokenizes with the standard `go/scanner`, determines top-level boundaries using only bracket depth and the semicolons the scanner inserts, and classifies each item and obtains its name by looking at its leading tokens (`import` / `func name` / `var` / `const` / `type` / `a, b :=`). All syntax and type errors are reported by the Go toolchain.
 * The only diagnostics gosfc emits itself are for constraints outside Go: method declarations, generic functions, the position of imports, binding names that collide with JavaScript reserved words (`new`, `class`, and so on), and `<script lang="go">` (without setup).
 
@@ -214,3 +216,25 @@ Open questions:
 * **formatter**: `gofmt`-equivalent formatting uses `go/format`. `go/format.Source` can also format "a list of declarations" or "a list of statements", so the Go block alone can be formatted by using the top-level split from `internal/synth` to pass the import group, declarations, and statements through `go/format` separately and rejoining them with the original blank lines. `gosfc fmt` will only write that back to the corresponding range of the `.vue` file, leaving the template / style to Prettier or Vue Language Tools.
 * **language server**: from the Go block in a `.vue` file, the synthetic Go used here becomes a virtual Go document as is and is passed to gopls as an overlay (gopls also uses go/packages overlays). Because of the `//line` directives, gopls diagnostics and positions can be mapped back to `.vue` coordinates. Completion, hover, definition, references, rename, code actions, and import completion will simply relay those from gopls; gosfc will not build its own Go completion. The template / style stay the responsibility of Vue Language Tools, so `.vue` files are shared between two language servers. The VS Code extension will be a thin LSP client.
 * **template ↔ Go**: the correspondence between template identifiers and Go bindings appears both in the glue (`const total = __gosfc.binding("total")`) and in the synthetic Go's lookup (`case "total": return total`). If Vue Language Tools can follow `total` in the glue, connecting that position to gopls's definition via the synthetic Go makes definition / rename work in both directions. This bridge exists only as a design so far.
+
+## 13. Types for vue-tsc and editors
+
+vue-tsc and the Vue editor extension generate TypeScript from a `<script setup>` in TypeScript or JavaScript only; for a Go block they generate nothing, and a TypeScript component that imports the component fails with TS2306 ("is not a module"). `@gosfc/vite/vue-language-plugin` (`packages/vite/src/language.js`) is a plugin of `@vue/language-core`, named in `vueCompilerOptions.plugins` of `tsconfig.json`. It is two plugins:
+
+* Before the language tools parse a `.vue` file (`parseSFC2`, `order: -1`), it parses a file with a Go block with `@vue/compiler-sfc` and replaces the block's content with a `<script setup lang="ts">` that stands for it, its view:
+
+  ```ts
+  type __gosfc_In = typeof import("go:example.com/app/src/_gosfc/rating_vue") extends { GosfcSetup(props: infer P): any } ? P : unknown;
+  type __gosfc_Prop<K extends string> = __gosfc_In extends { [k in K]?: infer T } ? T : any;
+  defineProps<{ "label"?: __gosfc_Prop<"Label">; "max"?: __gosfc_Prop<"Max"> }>();
+  defineEmits<{ "rated": any[] }>();
+  let props!: any;
+  let Rate!: any;
+  ```
+
+  The language tools then generate the component, and check its template against the bindings, as for a TypeScript component.
+* After they generated their TypeScript (`resolveEmbeddedCode`, `order: 1`), it removes the mappings of the code generated from the view, so that none of it maps to the Go code: its errors are dropped, and hovers and formatting do not reach the Go block.
+
+What the view needs of the block, gosfc synth reports (§4): the bindings, `propKeys`, and `emits`, the string literals passed to a variable assigned `vue.Emitter()`. The language tools are synchronous, so the plugin runs `go tool gosfc synth` with `execFileSync`; without it, the props are `any` and the bindings are the names the template reads (`templateNames`). The prop names are the ones the glue declares (`propFields`). The types of the props are goesm's: the setup function takes Props, so the declaration file goesm writes for the block's package (`emit-ts -dts`) has the fields' JavaScript types, and the types file of the `go:` imports (`types.js`) declares the package of each `.vue` file's block under the `go:` specifier the glue imports it by. Until the Go has been compiled, the module is the placeholder's `any` (or unresolved, whose error the unmapped view drops), and so are the props. gosfc maps no Go type to TypeScript itself.
+
+`astro check` reads `.vue` files through `@astrojs/vue`, which finds the props in a `defineProps` of the script (a Go component's are `Record<string, any>`), and does not check `.vue` files; it has no plugins, and reads a Go frontmatter as TypeScript.

@@ -105,7 +105,7 @@ Components using `lang="ts"` or a plain `<script setup>` keep working alongside 
   </script>
   ```
 * Put methods and generic functions in a Go package.
-* To receive props, declare `type Props struct {...}`; the block then has a `props` variable of that type. Field `Route` is read from the attribute `route` (or the field's json tag name, or its kebab-case form), converted to the field's type: strings, bools and numbers, and structs, slices, pointers (`null` is nil) and functions as goesm's ABI converts them. A field's `default:"..."` tag fills a prop the parent leaves out. When the parent passes new props, `props` is replaced and the template reads it again (`{{ props.Title }}`). The fields are declared as Vue props, so other attributes (`class`, `style`, listeners) fall through to the root element as usual.
+* To receive props, declare `type Props struct {...}`; the block then has a `props` variable of that type. Field `Route` is read from the attribute `route` (or the name in the field's `js` or `json` tag, or its kebab-case form), converted to the field's type: strings, bools and numbers, and structs, slices, pointers (`null` is nil) and functions as goesm's ABI converts them. A field's `default:"..."` tag fills a prop the parent leaves out. When the parent passes new props, `props` is replaced and the template reads it again (`{{ props.Title }}`). The fields are declared as Vue props, so other attributes (`class`, `style`, listeners) fall through to the root element as usual.
 
   ```vue
   <script setup lang="go">
@@ -250,6 +250,72 @@ declare module "go:example.com/app/content" {
 ```
 
 In Astro, `@gosfc/astro` writes the declarations to `.astro/integrations/_gosfc_astro/go-imports.d.ts`, which `.astro/types.d.ts` references, so `astro check` and editors see them. `astro sync`, and so `astro check`, compiles the Go to write them; `astro dev` and `astro build` rewrite them when they compile. With Vite alone, `@gosfc/vite` writes them to `gosfc.d.ts` in Vite's root, which the `include` of the project's `tsconfig.json` must cover; `gosfc({ dts: "src/gosfc.d.ts" })` picks another file and `gosfc({ dts: false })` none. Until the Go has been compiled once, the file declares every `go:` import as `any`.
+
+The file also declares the package of the Go block of each `.vue` file, where the Vue language plugin reads the types of the component's props (next section).
+
+## Type-checking with vue-tsc
+
+vue-tsc and the Vue editor extension generate TypeScript from a `<script setup>` in TypeScript or JavaScript only. For a Go component they generate nothing, so a TypeScript component that imports it fails with `TS2306: File '.../Rating.vue' is not a module`. `@gosfc/vite` has a plugin for the Vue language tools that shows them a TypeScript view of each Go block. Name it in `tsconfig.json`:
+
+```jsonc
+{
+  "vueCompilerOptions": {
+    "plugins": ["@gosfc/vite/vue-language-plugin"] // in Astro: "@gosfc/astro/vue-language-plugin"
+  }
+}
+```
+
+A Go component is then a component to TypeScript, so a project can move a leaf component to Go and keep the TypeScript components that use it:
+
+```vue
+<!-- Rating.vue -->
+<template>
+  <button @click="Rate">{{ props.Label }}</button>
+</template>
+
+<script setup lang="go">
+import "github.com/goesm-dev/gosfc/vue"
+
+type Props struct {
+	Label string
+	Max   int `default:"5"`
+}
+
+emit := vue.Emitter()
+
+func Rate() {
+	emit("rated", props.Max)
+}
+</script>
+```
+
+```vue
+<!-- Review.vue -->
+<template>
+  <Rating label="Quality" :max="3" @rated="onRated" />
+</template>
+
+<script setup lang="ts">
+import Rating from "./Rating.vue";
+
+function onRated(stars: number) {
+  console.log(stars);
+}
+</script>
+```
+
+* The props are the fields of `type Props struct`, under the names the component declares them by (`label`, `max`, and `noteText` for a field tagged `json:"note-text"`), all optional. Their types are the ones goesm gives the fields (`<Rating :max="'three'" />` is `error TS2322: Type 'string' is not assignable to type 'number'`), read from the types file of the previous section, so that file must be in the TypeScript project. Until the Go has been compiled once (a dev server, a build, `astro sync` or `astro check`), the props are `any`.
+* The events are the names the block passes as string literals to the function `vue.Emitter()` returns, with arguments of type `any`.
+* The template of a Go component reads the bindings of its Go block, typed `any`. A name the block does not declare is an error.
+
+The plugin reads a Go block with `go tool gosfc synth`, as the Vite plugin does; it compiles no Go. Without the go command or the gosfc tool, it warns once and types the props and bindings of Go components as `any`. The view maps to nothing in the `.vue` file, so errors, hovers and formatting never land on the Go code (editor support for Go is gopls's, see ARCHITECTURE.md §12).
+
+`astro check` leaves `.vue` files to vue-tsc: an `.astro` file importing a Go component (`.vue` or `.astro`) is checked as usual, and Astro types the props of a Go `.vue` component as `Record<string, any>`. It reads a Go frontmatter as TypeScript, so leave the `.astro` files with Go out of the `include` of `tsconfig.json` (with `exclude`); the files that import them are still checked. [examples/astro](examples/astro) runs `astro check && vue-tsc --noEmit` this way (`pnpm check`).
+
+Limitations:
+
+* An event the block emits through another function or package, or under a name that is not a string literal, is not declared. vue-tsc reports an undeclared event only with `checkUnknownEvents`.
+* The fields of an embedded struct in Props are not declared as props; at run time they are not Vue props either, and are read from the attributes.
 
 ## Benchmark
 

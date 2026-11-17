@@ -2,6 +2,7 @@ node_modules/
 dist/
 .astro/
 tests/fixtures/app/gosfc.d.ts
+bench/gosfc.d.ts
 
 .env
 .env.*

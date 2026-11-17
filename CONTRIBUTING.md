@@ -62,7 +62,7 @@ pnpm install
 pnpm test
 ```
 
-This runs `go test ./...` (`internal/synth` and so on) and `tests/*.test.mjs` (Astro build, Vite build / SSR / HMR, diagnostics). The browser HMR test uses Chromium at `/opt/pw-browsers/chromium` or from the `CHROMIUM` environment variable, and is skipped if it is not found.
+This runs `go test ./...` (`internal/synth` and so on) and `tests/*.test.mjs` (Astro build, Vite build / SSR / HMR, diagnostics, vue-tsc and astro check). The browser HMR test uses Chromium at `/opt/pw-browsers/chromium` or from the `CHROMIUM` environment variable, and is skipped if it is not found.
 
 To run the example locally:
 
