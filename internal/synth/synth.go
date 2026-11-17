@@ -141,6 +141,12 @@ type Output struct {
 	// Props, in source order, as goesm's JS calling ABI names them: the js
 	// tag, or else the json tag name, or else the field name.
 	PropKeys []string `json:"propKeys,omitempty"`
+	// PropOptional are the keys of the Props fields that the parent may
+	// leave out by their declaration: a field with a default tag, with the
+	// omitempty option in its js or json tag, or of a pointer type. (The
+	// Vue language plugin also takes a field whose type has nil or is a
+	// bool as optional, by the types goesm gives the fields.)
+	PropOptional []string `json:"propOptional,omitempty"`
 	// Emits are the events the block emits: the string literals passed as
 	// the first argument to a variable holding vue.Emitter(), in source
 	// order and once each.
@@ -370,7 +376,7 @@ func Build(in Input) Output {
 				// Props is the setup function's parameter type, so it is
 				// declared at package level.
 				out.Props = true
-				out.PropKeys, out.PropDefaults = propFields(it.toks[3:])
+				out.PropKeys, out.PropDefaults, out.PropOptional = propFields(it.toks[3:])
 				// The template reads the props as props.Field.
 				bind(tok{off: it.toks[1].off, lit: "props"}, "var")
 				importsDone = true
@@ -732,8 +738,10 @@ func importName(toks []tok, path string) string {
 // propFields reads the fields of a struct type, given the tokens after
 // `struct`: the keys of its exported fields as goesm's JS calling ABI names
 // them (the js tag, or else as encoding/json does: the json tag name, or the
-// field name), and their `default:"..."` tags by key.
-func propFields(toks []tok) (keys []string, defaults map[string]string) {
+// field name), their `default:"..."` tags by key, and the keys of the fields
+// the parent may leave out by their declaration (a default tag, omitempty or
+// a pointer type).
+func propFields(toks []tok) (keys []string, defaults map[string]string, optional []string) {
 	depth := 0
 	var field []tok
 	flush := func() {
@@ -749,14 +757,15 @@ func propFields(toks []tok) (keys []string, defaults map[string]string) {
 				tag = reflect.StructTag(raw)
 			}
 		}
-		j, _, _ := strings.Cut(tag.Get("json"), ",")
+		j, jopts, _ := strings.Cut(tag.Get("json"), ",")
 		if js, ok := tag.Lookup("js"); ok {
-			j, _, _ = strings.Cut(js, ",")
+			j, jopts, _ = strings.Cut(js, ",")
 		}
 		if j == "-" {
 			return
 		}
 		def, hasDef := tag.Lookup("default")
+		opt := hasDef || f[2*len(names)-1].tok == token.MUL || slices.Contains(strings.Split(jopts, ","), "omitempty")
 		for _, n := range names {
 			if !token.IsExported(n.lit) {
 				continue
@@ -766,6 +775,9 @@ func propFields(toks []tok) (keys []string, defaults map[string]string) {
 				key = j
 			}
 			keys = append(keys, key)
+			if opt {
+				optional = append(optional, key)
+			}
 			if hasDef {
 				if defaults == nil {
 					defaults = map[string]string{}
@@ -785,7 +797,7 @@ func propFields(toks []tok) (keys []string, defaults map[string]string) {
 			depth--
 			if depth == 0 {
 				flush()
-				return keys, defaults
+				return keys, defaults, optional
 			}
 		case token.SEMICOLON:
 			if depth == 1 {
@@ -797,5 +809,5 @@ func propFields(toks []tok) (keys []string, defaults map[string]string) {
 			field = append(field, t)
 		}
 	}
-	return keys, defaults
+	return keys, defaults, optional
 }

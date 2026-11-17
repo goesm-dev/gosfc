@@ -10,15 +10,21 @@
 // importing it fails with TS2306. The plugin shows them, in place of the Go
 // block, a <script setup lang="ts"> that declares what the component is:
 //
-//   type __gosfc_In = typeof import("go:example.com/app/src/_gosfc/child_vue") extends { GosfcSetup(props: infer P): any } ? P : unknown;
+//   type __gosfc_In = [typeof import("go:example.com/app/src/_gosfc/child_vue")] extends [{ GosfcSetup(props: infer P): any }] ? P : unknown;
 //   type __gosfc_Prop<K extends string> = __gosfc_In extends { [k in K]?: infer T } ? T : any;
-//   defineProps<{ "label"?: __gosfc_Prop<"Label">; "count"?: __gosfc_Prop<"Count"> }>();
+//   type __gosfc_Fields = { "label": __gosfc_Prop<"Label">; "count": __gosfc_Prop<"Count"> };
+//   type __gosfc_Optional<K extends keyof __gosfc_Fields> = K extends never ? true : null extends __gosfc_Fields[K] ? true : [__gosfc_Fields[K]] extends [boolean] ? true : false;
+//   defineProps<{ [K in ... as __gosfc_Optional<K> extends true ? K : never]?: ... } & { [K in ... as __gosfc_Optional<K> extends true ? never : K]: ... }>();
 //   defineEmits<{ "picked": any[] }>();
 //   let props!: any;
 //   let Pick!: any;
 //
 // The props are the fields of the block's Props type, by the names the glue
-// declares them by (compile.js), all optional. Their types are those of the
+// declares them by (compile.js). A prop is optional when gosfc synth reports
+// its field optional by its declaration (a default tag, omitempty, a
+// pointer), or when its type has null (nil: a pointer, slice, map, func or
+// interface) or is a boolean (Vue casts a missing Boolean prop to false);
+// the others are required. Their types are those of the
 // fields of the setup function's parameter in the declaration file goesm
 // writes for the block's package, which the plugins write to the types file
 // with those of the go: imports (types.js); until the Go has been compiled
@@ -86,7 +92,7 @@ function lineCol(code, offset) {
  * @param {string} code
  * @param {string} filename
  * @param {import("@vue/compiler-sfc").SFCScriptBlock} block
- * @returns {{ importPath: string, synth: { bindings?: { name: string }[], props?: boolean, propKeys?: string[], emits?: string[] } } | null}
+ * @returns {{ importPath: string, synth: { bindings?: { name: string }[], props?: boolean, propKeys?: string[], propOptional?: string[], emits?: string[] } } | null}
  */
 function readBlock(code, filename, block) {
   const mod = findGoModule(path.dirname(filename));
@@ -144,12 +150,18 @@ export function goView(code, filename, descriptor) {
   if (read) {
     const { importPath, synth } = read;
     if (synth.props) {
+      const fields = propFields(synth);
+      const optional = new Set(synth.propOptional ?? []);
+      const opt = fields.filter(([key]) => optional.has(key)).map(([, name]) => q(name));
       lines.push(
-        `type __gosfc_In = typeof import(${q("go:" + importPath)}) extends { GosfcSetup(props: infer P): any } ? P : unknown;`,
+        // In a tuple, so that a module TypeScript cannot resolve (an error
+        // type) gives props of type any rather than keys of type any.
+        `type __gosfc_In = [typeof import(${q("go:" + importPath)})] extends [{ GosfcSetup(props: infer P): any }] ? P : unknown;`,
         "type __gosfc_Prop<K extends string> = __gosfc_In extends { [k in K]?: infer T } ? T : any;",
-        `defineProps<{ ${propFields(synth)
-          .map(([key, name]) => `${q(name)}?: __gosfc_Prop<${q(key)}>`)
-          .join("; ")} }>();`,
+        `type __gosfc_Fields = { ${fields.map(([key, name]) => `${q(name)}: __gosfc_Prop<${q(key)}>`).join("; ")} };`,
+        // Optional: declared so (synth), a type with nil (null), a bool, or any.
+        `type __gosfc_Optional<K extends keyof __gosfc_Fields> = K extends ${opt.join(" | ") || "never"} ? true : null extends __gosfc_Fields[K] ? true : [__gosfc_Fields[K]] extends [boolean] ? true : false;`,
+        "defineProps<{ [K in keyof __gosfc_Fields as __gosfc_Optional<K> extends true ? K : never]?: __gosfc_Fields[K] } & { [K in keyof __gosfc_Fields as __gosfc_Optional<K> extends true ? never : K]: __gosfc_Fields[K] }>();",
       );
     }
     if (synth.emits?.length) lines.push(`defineEmits<{ ${synth.emits.map((e) => `${q(e)}: any[]`).join("; ")} }>();`);

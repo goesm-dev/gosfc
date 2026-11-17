@@ -43,7 +43,10 @@ test("the view of a Go block declares its props, events and bindings", () => {
   const view = goView(code, file, parse(code, { filename: file }).descriptor);
   assert.match(view, /typeof import\("go:example\.com\/fixture\/src\/typed\/_gosfc\/rating_vue"\)/);
   // The names the glue declares the props by: json and js tags, camelized.
-  assert.match(view, /defineProps<\{ "label"\?: __gosfc_Prop<"Label">; "max"\?: __gosfc_Prop<"Max">; "tags"\?: __gosfc_Prop<"Tags">; "noteText"\?: __gosfc_Prop<"note-text">; "itemId"\?: __gosfc_Prop<"itemId"> \}>\(\);/);
+  assert.match(view, /type __gosfc_Fields = \{ "label": __gosfc_Prop<"Label">; "max": __gosfc_Prop<"Max">; "tags": __gosfc_Prop<"Tags">; "noteText": __gosfc_Prop<"note-text">; "itemId": __gosfc_Prop<"itemId"> \};/);
+  // Max has a default tag: optional whatever its type.
+  assert.match(view, /type __gosfc_Optional<K extends keyof __gosfc_Fields> = K extends "max" \? true : null extends __gosfc_Fields\[K\] \? true : \[__gosfc_Fields\[K\]\] extends \[boolean\] \? true : false;/);
+  assert.match(view, /^defineProps<.*__gosfc_Optional<K> extends true \? K : never\]\?: __gosfc_Fields\[K\] \} & .*>\(\);$/m);
   assert.match(view, /defineEmits<\{ "rated": any\[\] \}>\(\);/);
   for (const b of ["props", "emit", "stars", "Rate"]) assert.match(view, new RegExp(`^let ${b}!: any;$`, "m"));
 });
@@ -78,6 +81,19 @@ const tags = [1, 2];
 </script>
 `,
   );
+  // The fields without a default tag, omitempty, nil or bool are required.
+  temp(
+    t,
+    src("typed/TmpMissingProp.vue"),
+    `<template>
+  <Rating label="Size" />
+</template>
+
+<script setup lang="ts">
+import Rating from "./Rating.vue";
+</script>
+`,
+  );
   temp(
     t,
     src("typed/TmpUnknownBinding.vue"),
@@ -95,6 +111,11 @@ stars := 3
   assert.match(r.out, /TmpWrongProp\.vue\(2,12\): error TS2322: Type 'string' is not assignable to type 'number'/);
   assert.match(r.out, /TmpWrongProp\.vue\(2,27\): error TS2322: Type 'number\[\]' is not assignable to type 'string\[\]'/);
   assert.match(r.out, /TmpUnknownBinding\.vue\(2,21\): error TS2339: Property 'missing' does not exist/);
+  const missing = r.out.split("\n").filter((l) => l.includes("TmpMissingProp.vue"));
+  assert.equal(missing.length, 1, r.out);
+  assert.match(missing[0], /TmpMissingProp\.vue\(2,4\): error TS2345: Argument of type '\{ label: string; \}' is not assignable/);
+  assert.match(missing[0], /readonly max\?: number \| undefined; readonly tags\?: string\[\] \| null \| undefined; readonly label: string; readonly noteText: string; readonly itemId: number;/);
+  assert.doesNotMatch(r.out, /TmpWrongProp\.vue.*is missing/);
   // Only those: the fixture's own components still type-check.
   assert.doesNotMatch(r.out, /Rating\.vue|Review\.vue/);
 });
