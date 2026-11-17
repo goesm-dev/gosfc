@@ -43,9 +43,11 @@ packages/vite/      @gosfc/vite: Vite plugin。src/compile.js が SFC と .astro
                     src/program.js がアプリの Go を環境ごとに 1 つの goesm プログラムにまとめる、
                     src/goesm.js が goesm との唯一の境界、runtime/bridge.js が template binding、
                     runtime/astro.js が Go のフロントマターの binding、runtime/convert.js が両者のバインディングの値と props、
-                    src/language.js（vue-language-plugin.cjs）が vue-tsc から見た Go のコンポーネントの型（§13）
+                    src/language.js（vue-language-plugin.cjs）が vue-tsc から見た Go のコンポーネントの型（§13）、
+                    src/blocking.js が Vue のコンポーネントが待てない所でブロックする Go の検出（§6）、
+                    runtime/handles.js がテンプレートに見せる Go のオブジェクト（§6）、src/index.d.ts がパッケージの型
 packages/astro/     @gosfc/astro: @gosfc/vite（と、インストールされていれば @astrojs/vue）を設定するだけの integration。
-                    @gosfc/vite の Vue の言語プラグインも再エクスポートする
+                    @gosfc/vite の Vue の言語プラグインも再エクスポートする。src/index.d.ts がその型
 examples/astro/     PoC（Astro → Vue → gosfc → goesm → Vite）と Go で書いた .astro のページ
 examples/astro-go/  Vue をインストールせず、Go を .astro ファイルだけに書く例
 tests/              Node のテスト（Astro build、Vite build / SSR / HMR、診断）と fixture
@@ -133,6 +135,8 @@ goesm 側の変更はこの PoC のために 1 つだけです：`build` / `emit
 
 * Go のコードが変更するのは普通の Go 変数で、Vue はそれを観測できません。そこでバインディング経由で Go の関数を呼ぶ（イベントハンドラ、テンプレート内の呼び出し）たびにインスタンスのバージョンを進め、全バインディングが Go から値を読み直します。Vue 自身のリアクティビティとスケジューラーだけを使い、別のレンダラーやスケジューラーはありません。
 * 値は goesm の JS 呼び出し ABI でテンプレート向けに変換します（Go 文字列 → JS 文字列、スライス → 配列、struct → オブジェクト、関数 → 関数）。これはスナップショットで、JS 側で書き換えても Go の状態は変わりません。
+* メソッドを持つ struct 型へのポインタを、ABI は Go のオブジェクトのまま（ハンドルとして）渡します。そのフィールドは Go の名前のまま Go 自身の表現を持っています。そこで `runtime/handles.js` は、値の中の各ハンドルの代わりにビューをテンプレートに見せます。ビューは、struct 型の `goToJS` が変換するフィールド（`js` タグか `json` タグの名前。別のハンドルを持つフィールドは、読んだときにビューを作る）を持つ普通のオブジェクトで、列挙されないエクスポートされたメソッドはハンドルのメソッドを呼び、ほかの呼び出しと同じく変更を知らせます。Go に戻したビュー（Go 関数の引数、`vue.Ref` の `Set`）はハンドルに戻るので、Go には自分のオブジェクトが届きます。goesm のランタイムの `classTypes`、`Kind`、`goToJS` を使います。
+* Vue は setup を同期的に実行し、レンダーは呼び出しが返したものを表示するので、どちらも Promise を待てません。`src/blocking.js` はブロックのパッケージの lower した TypeScript を読み（`async` の関数があるときだけ）、async の `GosfcSetup` と、補間か `v-on` 以外のディレクティブから呼ばれるバインディングの async のクロージャをコンパイルエラーにします。エラーには、ブロックする呼び出しの連なりを示します。各関数の最初の `await` を、そのモジュールと import するモジュールの中でたどり、ソースマップで Go の位置に戻します。標準ライブラリの呼び出しか、モジュールから見えない呼び出し（インターフェース経由のメソッド、関数値）で止まります。
 * `vue.Ref` や `vue.Computed`（`vue` パッケージ。目印のメソッド `GosfcRef` を持つ goesm のハンドル）を持つバインディングは `Get()` の値として読みます。Ref の `Get` は Vue の `shallowRef` を読み、`Set` はそれをトリガーします。そのため、誰が `Set` を呼んでも、バインディングの computed、レンダー（テンプレートから呼んだ Go 関数）、ウォッチャーが Ref を追跡します。バインディングの computed は書き込み可能で、`v-model` と `ref="..."` は `Set` を呼びます。ただし、Ref が既に持っている値と同じなら呼びません。
 * Vue のレンダー中に呼ばれた Go 関数ではバージョンを進めません。進めると、レンダーが読んでいるものが無効になり、レンダーが際限なく繰り返されるためです。
 * `type Props` がある場合、ブリッジは属性を監視し、新しい props をルックアップの `gosfc:props` セッターで渡してから、バージョンと props のバージョンを進めます。setup 中に `vue` パッケージで作ったウォッチャーと computed は、この props のバージョンも読みます。

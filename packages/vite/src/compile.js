@@ -97,6 +97,13 @@ export async function compileSfc(code, filename, opts) {
   const tagOffset = code.lastIndexOf("<script", block.loc.start.offset);
   const vb = vueBlock(code, filename, descriptor, opts.root);
   const { importPath, synth, res, goFiles } = await compileGoBlock({ ...vb, lower: opts.lower });
+  // Only a block whose package has async functions can block (blocking.js,
+  // loaded then: it parses goesm's output with Vite's parser).
+  if (/\basync\b/.test(res.modules.find((m) => m.importPath === importPath)?.code ?? "")) {
+    const { blockingCalls } = await import("./blocking.js");
+    const blocked = blockingCalls({ importPath, modules: res.modules, descriptor, bindings: (synth.bindings ?? []).map((b) => b.name) });
+    if (blocked.length) throw blockingError(blocked, filename, code, tagOffset, opts.root);
+  }
 
   const s = new MagicString(code);
   // <script setup lang="go"> -> <script setup lang="ts">. Vue requires <script>
@@ -147,6 +154,41 @@ export async function compileSfc(code, filename, opts) {
     runtime: res.runtime,
     goFiles,
   };
+}
+
+/**
+ * The error of the places of a Go block that block where a Vue component
+ * cannot wait (blocking.js): at the call that blocks in the setup, or at
+ * the template's call of a Go function that blocks, with the chain of calls
+ * that blocks.
+ * @param {ReturnType<typeof import("./blocking.js").blockingCalls>} blocked
+ * @param {string} filename
+ * @param {string} code
+ * @param {number} tagOffset
+ * @param {string} root
+ */
+function blockingError(blocked, filename, code, tagOffset, root) {
+  const rel = (f) => {
+    const r = path.relative(root, f);
+    return r.startsWith("..") ? f : r.split(path.sep).join("/");
+  };
+  const chain = (steps) => steps.map((s) => `\n    ${rel(s.file)}:${s.line}: ${s.text}`).join("");
+  return new GosfcError(
+    blocked.map((b) => {
+      if (b.call) {
+        const message =
+          `${b.call} blocks, and the template calls it while it renders, which cannot wait for it:${chain(b.chain)}\n` +
+          `  A Go function the template calls must return at once: call it from an event handler, or keep its result in a vue.Ref.`;
+        return withFrame({ file: filename, ...lineCol(code, b.offset), message }, code);
+      }
+      const message =
+        `the Go block blocks while the component is set up, which Vue cannot wait for:${chain(b.chain)}\n` +
+        `  Run what blocks in a goroutine (go func() { ... }()) and keep its result in a vue.Ref.`;
+      const at = b.chain[0]?.file === filename ? b.chain[0] : lineCol(code, tagOffset);
+      return withFrame({ file: filename, line: at.line, column: at.column, message }, code);
+    }),
+    root,
+  );
 }
 
 /**

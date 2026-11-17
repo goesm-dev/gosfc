@@ -86,7 +86,8 @@ Components using `lang="ts"` or a plain `<script setup>` keep working alongside 
 ## Writing the Go block
 
 * Like Vue's `<script setup>`, the top level runs once, top to bottom, per component instance. You can write `x := ...`, `var`, `const`, `type`, and `func F() {...}`.
-* Top-level variables, constants, and functions are available in the template. When the template calls a Go function (for example `@click="Increment"`), the rendered output follows the Go values. Values and the arguments and results of calls are converted as for goesm's [exported functions](https://github.com/goesm-dev/goesm/blob/main/docs/js-exports.md): strings, slices as arrays, structs as plain objects.
+* Top-level variables, constants, and functions are available in the template. When the template calls a Go function (for example `@click="Increment"`), the rendered output follows the Go values. Values and the arguments and results of calls are converted as for goesm's [exported functions](https://github.com/goesm-dev/goesm/blob/main/docs/js-exports.md): strings, slices as arrays, structs as plain objects. A pointer to a struct type with methods, which goesm hands to JavaScript as the Go object itself, is shown to the template as a plain object of its fields, named by their `js` or `json` tags (`{{ Get().x }}`), whose methods are callable (`@click="acct.Deposit(5)"`). Passed back to a Go function, it is the same Go object again.
+* The setup and the Go functions the template calls while it renders (`{{ Total() }}`, `:title="Name()"`, `v-if="Ready()"`) must not block: Vue cannot wait for either. A block that waits there (`time.Sleep`, a channel, a mutex, an imported Promise, or a call to a function that does) is a compile-time error naming the calls that block. Run what blocks in a goroutine and keep its result in a `vue.Ref`; event handlers may block.
 * `import` takes Go packages only; the Go frontmatter of an `.astro` file can also import JavaScript modules, as described below. In a Vue component, Vue components, TypeScript and JavaScript come in through goesm's [`//goesm:import`](https://github.com/goesm-dev/goesm/blob/main/docs/js-imports.md) directive, before a `var` (a component, a class, any value) or a function without a body (a function, called with automatic conversion of its arguments and result). Both are template bindings like the block's other names. Their types may use imported and built-in types, not types declared in the block, since they are declared at package level.
 
   ```vue
@@ -311,6 +312,8 @@ function onRated(stars: number) {
 The plugin reads a Go block with `go tool gosfc synth`, as the Vite plugin does; it compiles no Go. Without the go command or the gosfc tool, it warns once and types the props and bindings of Go components as `any`. The view maps to nothing in the `.vue` file, so errors, hovers and formatting never land on the Go code (editor support for Go is gopls's, see ARCHITECTURE.md §12).
 
 `astro check` leaves `.vue` files to vue-tsc: an `.astro` file importing a Go component (`.vue` or `.astro`) is checked as usual, and Astro types the props of a Go `.vue` component as `Record<string, any>`. It reads a Go frontmatter as TypeScript, so leave the `.astro` files with Go out of the `include` of `tsconfig.json` (with `exclude`); the files that import them are still checked. [examples/astro](examples/astro) runs `astro check && vue-tsc --noEmit` this way (`pnpm check`).
+
+`@gosfc/vite` and `@gosfc/astro` ship their own types, so a `vite.config.ts` or an `astro.config.mjs` that imports them type-checks its options.
 
 Limitations:
 

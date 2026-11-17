@@ -105,3 +105,21 @@ test("vue-tsc: without the go command, a Go component's props and bindings are a
   assert.equal(r.code, 0, r.out);
   assert.match(r.out, /gosfc: the Go components of .* are typed as any/);
 });
+
+test("vue-tsc: the options of the Vite plugin have types", async (t) => {
+  temp(
+    t,
+    src("TmpViteConfig.ts"),
+    `import gosfc, { compileSfc, type GosfcOptions } from "@gosfc/vite";
+import type { Plugin } from "vite";
+
+const options: GosfcOptions = { dts: false, serverOnly: (file) => file.endsWith(".server.ts") };
+export const plugin: Plugin = gosfc(options);
+export const compiled = compileSfc("", "/app/src/App.vue", { root: "/app" }).then((r) => r?.code);
+// @ts-expect-error dts is a path, false or a function
+gosfc({ dts: 1 });
+`,
+  );
+  const r = await typeCheck();
+  assert.equal(r.code, 0, r.out);
+});
