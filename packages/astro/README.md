@@ -36,6 +36,15 @@ export default defineConfig({
 
 When `@astrojs/vue` is installed and not already configured, it is added. `gosfc({ vue: false })` never adds it, and `gosfc({ vue: { ... } })` passes options to it.
 
+Endpoints and middleware written in Go are Go packages named in the options: `routes` maps route patterns to packages that export `GET`, `POST`, ... (and `GetStaticPaths`), and `middleware` names packages that export `OnRequest`.
+
+```js
+gosfc({
+  routes: { "/api/[id].json": "example.com/app/src/api" },
+  middleware: "example.com/app/src/server",
+});
+```
+
 Use `<script setup lang="go">` in `.vue` files and Go in `.astro` frontmatter as described in the main docs.
 
 The TypeScript types of the Go packages that TypeScript imports with `go:` are written to `.astro/integrations/_gosfc_astro/go-imports.d.ts`, which `.astro/types.d.ts` references (with goesm v0.0.1-beta.8 or later). `astro sync` and `astro check` compile the Go to write them.

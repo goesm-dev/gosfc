@@ -129,14 +129,58 @@ func TestFuncColumnsPreserved(t *testing.T) {
 }
 
 func TestUnsupportedDeclarations(t *testing.T) {
-	out := build(t, "\nx := 1\nimport \"fmt\"\nfunc (p *T) M() {}\nfunc G[T any]() {}\n")
+	out := build(t, "\nx := 1\nimport \"fmt\"\nfunc G[T any]() {}\n")
 	var got []string
 	for _, d := range out.Diagnostics {
 		got = append(got, d.Message[:strings.Index(d.Message, " ")]+"@"+string(rune('0'+d.Line-10)))
 	}
-	want := []string{"imports@2", "methods@3", "generic@4"}
+	want := []string{"imports@2", "generic@3"}
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("diagnostics = %v, want %v", got, want)
+	}
+}
+
+// The block's types are package-level types: Props and the methods the block
+// declares use them, and the template reads the results of the methods.
+func TestBlockTypesAndMethods(t *testing.T) {
+	out := build(t, `
+import "strings"
+
+const prefix = "#"
+
+type Tag string
+
+func (t Tag) Label() string { return prefix + strings.ToUpper(string(t)) }
+
+type Props struct {
+	Tags []Tag
+	Kind Kind
+}
+
+type Kind int
+
+func (k *Kind) Next() { *k++ }
+
+func (p Props) First() Tag { return p.Tags[0] }
+
+first := props.First().Label()
+kind := props.Kind
+kind.Next()
+`)
+	if len(out.Diagnostics) > 0 {
+		t.Fatalf("%+v", out.Diagnostics)
+	}
+	if errs := check(t, out); len(errs) > 0 {
+		t.Fatalf("%v\n%s", errs, out.Go)
+	}
+	if got := names(out.Bindings); !reflect.DeepEqual(got, []string{"prefix", "props", "first", "kind"}) {
+		t.Errorf("bindings %v", got)
+	}
+	// A method sees the package's names, not the setup's.
+	out = build(t, "\ntype T int\n\nn := 1\n\nfunc (T) M() int { return n }\n")
+	errs := check(t, out)
+	if len(errs) != 1 || !strings.Contains(errs[0], vue+":15:") || !strings.Contains(errs[0], "undefined: n") {
+		t.Errorf("errors = %v", errs)
 	}
 }
 
@@ -161,6 +205,9 @@ type Props struct {
 	Skip string `+"`json:\"-\"`"+`
 	ID int `+"`json:\"id\" js:\"ID\"`"+`
 	Gone string `+"`json:\"gone\" js:\"-\"`"+`
+	Note string `+"`json:\"note,omitempty\"`"+`
+	Max *int
+	Min string `+"`js:\"min,omitempty\" json:\"lo\"`"+`
 }
 
 upper := strings.ToUpper(props.Route)
@@ -190,13 +237,33 @@ upper := strings.ToUpper(props.Route)
 	}
 	// The keys of the exported fields, which the glue declares as props.
 	// A js tag names the field as goesm's JS calling ABI does.
-	if want := []string{"Route", "n", "Size", "Gap", "Label", "ID"}; !reflect.DeepEqual(out.PropKeys, want) {
+	if want := []string{"Route", "n", "Size", "Gap", "Label", "ID", "note", "Max", "min"}; !reflect.DeepEqual(out.PropKeys, want) {
 		t.Errorf("keys %v, want %v", out.PropKeys, want)
+	}
+	// The fields the parent may leave out: a default tag, omitempty (of the
+	// tag that names the key) or a pointer.
+	if want := []string{"Size", "Gap", "Label", "note", "Max", "min"}; !reflect.DeepEqual(out.PropOptional, want) {
+		t.Errorf("optional %v, want %v", out.PropOptional, want)
 	}
 
 	out = build(t, "type Props int\n")
 	if len(out.Diagnostics) != 1 || !strings.Contains(out.Diagnostics[0].Message, "Props must be a struct type") {
 		t.Errorf("%+v", out.Diagnostics)
+	}
+}
+
+// The exposed names are the string literals passed to vue.Expose.
+func TestExposes(t *testing.T) {
+	out := build(t, `
+import v "github.com/goesm-dev/gosfc/vue"
+
+count := v.NewRef(0)
+v.Expose("count", count)
+v.Expose("Reset", func() { count.Set(0) })
+v.Expose("count", 1)
+`)
+	if want := []string{"count", "Reset"}; !reflect.DeepEqual(out.Exposes, want) {
+		t.Errorf("exposes %v, want %v", out.Exposes, want)
 	}
 }
 
@@ -458,5 +525,70 @@ func TestJSImportErrors(t *testing.T) {
 	// Without JSImports (a .vue block), such an import is left to Go, which rejects it.
 	if out := build(t, `import Card "./Card.vue"`); len(out.JSImports) > 0 || !strings.Contains(out.Go, "./Card.vue") {
 		t.Errorf("a .vue block took a JavaScript import: %+v", out)
+	}
+}
+
+// A Go frontmatter reads Astro's global as Astro, which the setup function
+// takes after the props, and declares the page's exports by Go names.
+func TestAstroFrontmatter(t *testing.T) {
+	src := `
+import "github.com/goesm-dev/gosfc/astro"
+
+const Prerender = false
+
+const (
+	Partial = true
+	other   = 1
+)
+
+type Props struct{ Title string }
+
+func GetStaticPaths() []astro.StaticPath { return nil }
+
+slug := Astro.Param("slug")
+`
+	astroIn := func(src string) Output {
+		return Build(Input{File: "/app/src/pages/[slug].astro", Package: "slug_astro", Source: src, Line: 2, Column: 1, TagLine: 1, TagCol: 1, Block: "the Go frontmatter", JSImports: true, Astro: true})
+	}
+	out := astroIn(src)
+	if len(out.Diagnostics) > 0 {
+		t.Fatalf("%+v", out.Diagnostics)
+	}
+	if !out.UsesAstro {
+		t.Error("UsesAstro is false")
+	}
+	want := []AstroExport{{Name: "prerender", Value: "false"}, {Name: "partial", Value: "true"}, {Name: "getStaticPaths", Func: "GetStaticPaths"}}
+	if !reflect.DeepEqual(out.AstroExports, want) {
+		t.Errorf("exports %+v, want %+v", out.AstroExports, want)
+	}
+	for _, w := range []string{
+		`import gosfcastro "github.com/goesm-dev/gosfc/astro"`,
+		"func GosfcSetup(props Props, gosfcAstro gosfcjs.Value) func(string) any {\nAstro := gosfcastro.Context{Value: gosfcAstro}",
+	} {
+		if !strings.Contains(out.Go, w) {
+			t.Errorf("missing %q in\n%s", w, out.Go)
+		}
+	}
+	// GetStaticPaths is a function of the package, not of the setup.
+	if i, j := strings.Index(out.Go, "func GetStaticPaths()"), strings.Index(out.Go, "func GosfcSetup("); i < 0 || i > j {
+		t.Errorf("GetStaticPaths is not declared at package level:\n%s", out.Go)
+	}
+	if got := names(out.Bindings); !reflect.DeepEqual(got, []string{"Prerender", "Partial", "other", "props", "slug"}) {
+		t.Errorf("bindings %v", got)
+	}
+
+	// Without Astro, the setup takes no Astro; a .vue block exports nothing.
+	out = astroIn("\nn := 1\n")
+	if out.UsesAstro || strings.Contains(out.Go, "gosfcastro") {
+		t.Errorf("Astro without a use:\n%s", out.Go)
+	}
+	if out = build(t, "\nfunc GetStaticPaths() int { return 1 }\n\nconst Prerender = true\n"); len(out.AstroExports) > 0 {
+		t.Errorf("exports of a .vue block: %+v", out.AstroExports)
+	}
+
+	// Astro reads prerender as a literal.
+	out = astroIn("\nconst Prerender = 1 == 1\n")
+	if len(out.Diagnostics) != 1 || !strings.Contains(out.Diagnostics[0].Message, "const Prerender = true (or false)") {
+		t.Errorf("%+v", out.Diagnostics)
 	}
 }

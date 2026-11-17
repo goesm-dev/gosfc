@@ -87,8 +87,9 @@ Components using `lang="ts"` or a plain `<script setup>` keep working alongside 
 
 * Like Vue's `<script setup>`, the top level runs once, top to bottom, per component instance. You can write `x := ...`, `var`, `const`, `type`, and `func F() {...}`.
 * Top-level variables, constants, and functions are available in the template. When the template calls a Go function (for example `@click="Increment"`), the rendered output follows the Go values. Values and the arguments and results of calls are converted as for goesm's [exported functions](https://github.com/goesm-dev/goesm/blob/main/docs/js-exports.md): strings, slices as arrays, structs as plain objects. A pointer to a struct type with methods, which goesm hands to JavaScript as the Go object itself, is shown to the template as a plain object of its fields, named by their `js` or `json` tags (`{{ Get().x }}`), whose methods are callable (`@click="acct.Deposit(5)"`). Passed back to a Go function, it is the same Go object again.
+* A name the template reads must be declared: a top-level name of the block, a prop, a variable of the template itself (`v-for`, `v-slot`, `$event`), a global Vue allows in templates (`Math`, `Date`, ...), a `$` property of the component (`$attrs`, `$slots`, global properties such as `$t`), or a top-level name of a plain `<script>`. Any other name (`<div v-if="missing">`) is a compile-time error at its position in the template, where Vue would read `undefined`. (A plain `<script>` with an `export default` may declare names through its options, so its component is not checked.)
 * The setup and the Go functions the template calls while it renders (`{{ Total() }}`, `:title="Name()"`, `v-if="Ready()"`) must not block: Vue cannot wait for either. A block that waits there (`time.Sleep`, a channel, a mutex, an imported Promise, or a call to a function that does) is a compile-time error naming the calls that block. With goesm after v0.0.1-beta.9, the chain goes down to what waits, also through interface methods and function values, naming a method or function that blocks among those such a call may reach. Run what blocks in a goroutine and keep its result in a `vue.Ref`; event handlers may block.
-* `import` takes Go packages only; the Go frontmatter of an `.astro` file can also import JavaScript modules, as described below. In a Vue component, Vue components, TypeScript and JavaScript come in through goesm's [`//goesm:import`](https://github.com/goesm-dev/goesm/blob/main/docs/js-imports.md) directive, before a `var` (a component, a class, any value) or a function without a body (a function, called with automatic conversion of its arguments and result). Both are template bindings like the block's other names. Their types may use imported and built-in types, not types declared in the block, since they are declared at package level.
+* `import` takes Go packages only; the Go frontmatter of an `.astro` file can also import JavaScript modules, as described below. In a Vue component, Vue components, TypeScript and JavaScript come in through goesm's [`//goesm:import`](https://github.com/goesm-dev/goesm/blob/main/docs/js-imports.md) directive, before a `var` (a component, a class, any value) or a function without a body (a function, called with automatic conversion of its arguments and result). Both are template bindings like the block's other names. They are declared at package level, so their types may use imported and built-in types and the types the block declares.
 
   ```vue
   <template>
@@ -105,8 +106,8 @@ Components using `lang="ts"` or a plain `<script setup>` keep working alongside 
   func formatPrice(yen int) string
   </script>
   ```
-* Put methods and generic functions in a Go package.
-* To receive props, declare `type Props struct {...}`; the block then has a `props` variable of that type. Field `Route` is read from the attribute `route` (or the name in the field's `js` or `json` tag, or its kebab-case form), converted to the field's type: strings, bools and numbers, and structs, slices, pointers (`null` is nil) and functions as goesm's ABI converts them. A field's `default:"..."` tag fills a prop the parent leaves out. When the parent passes new props, `props` is replaced and the template reads it again (`{{ props.Title }}`). The fields are declared as Vue props, so other attributes (`class`, `style`, listeners) fall through to the root element as usual.
+* `type` and `const` declarations, and methods (`func (t Tag) Label() string`), are declared at the package level of the block's package: `Props` and the methods can use the block's types, and a method sees the package's names (imports, types, constants), not the variables of the setup. Put generic functions in a Go package.
+* To receive props, declare `type Props struct {...}`; the block then has a `props` variable of that type. Field `Route` is read from the attribute `route` (or the name in the field's `js` or `json` tag, or its kebab-case form), converted to the field's type: strings, bools and numbers, and structs, slices, pointers (`null` is nil) and functions as goesm's ABI converts them. A field's `default:"..."` tag fills a prop the parent leaves out. The fields are declared as typed Vue props: a `bool` field is a `Boolean` prop (`<Dialog open />` is true, a missing attribute false), and a field with a `default` tag has that default, also for the template and `$props`. When the parent passes new props, `props` is replaced and the template reads it again (`{{ props.Title }}`). The fields are declared as Vue props, so other attributes (`class`, `style`, listeners) fall through to the root element as usual.
 
   ```vue
   <script setup lang="go">
@@ -157,10 +158,11 @@ vue.Watch(func() int { return seconds.Get() }, func(n int) { emit("tick", n) })
 </script>
 ```
 
-* A Ref bound in the template reads as its value and is followed whoever sets it, from any package: Refs can live in a Go package and be shared by components. The Go of all the components (and the packages JavaScript imports with `go:`) is one goesm program, as the packages of a Go binary are, so a package's variables are one set for the whole app: one in the browser and one on the server, which run separately. The browser's program leaves out the Go that runs only on the server (the Go frontmatter of `.astro` files, and the `go:` imports of their TypeScript frontmatter and, with `@gosfc/astro`, of endpoints, middleware and actions), so that what that Go uses does not grow the browser's bundle. `v-model` and `ref="..."` write it with `Set`.
+* A Ref bound in the template reads as its value and is followed whoever sets it, from any package: Refs can live in a Go package and be shared by components. The Go of all the components (and the packages JavaScript imports with `go:`) is one goesm program, as the packages of a Go binary are, so a package's variables are one set for the whole app: one in the browser and one on the server, which run separately. The browser's program leaves out the Go that runs only on the server (the Go frontmatter of `.astro` files, and the `go:` imports of their TypeScript frontmatter and, with `@gosfc/astro`, of endpoints, middleware and actions), so that what that Go uses does not grow the browser's bundle. `v-model` and `ref="..."` write it with `Set`. A function ref (`:ref="(el) => SetEl(el)"`) may call Go: Vue calls it while it patches the page, so the call does not render the component again; keep what the template should show of it in a `vue.Ref`.
 * A Go function called from the template is re-run when a Ref it read changes.
-* `vue.NewComputed` derives a cached value; `vue.Watch` and `vue.WatchEffect` run side effects, and also re-run when the component's props change.
-* `vue.OnMounted`, `OnBeforeUnmount`, `OnUnmounted` and `vue.Emitter` belong to the component being set up: call them from the top level of the block. `emit("update:modelValue", v)` with a `ModelValue` prop makes the component work with `v-model`.
+* `vue.NewComputed` derives a cached value; `vue.Watch` and `vue.WatchEffect` run side effects, and also re-run when the component's props change. `vue.Flush("post")` runs a watcher after Vue updated the page, `vue.Flush("sync")` at once within each `Set` (`vue.Watch(src, cb, vue.Flush("post"))`); the default is `"pre"`, as in Vue. `Watch` takes a source of any type: values are compared with `==`, `js.Value`s with `Equal`, and values that cannot be compared (slices, maps, functions) are always new; a `Ref`'s `Set` compares the same way.
+* `vue.Expose("Focus", Focus)` adds a property to what a parent reaches through a template ref, as `defineExpose` does: a function is callable (and renders the component again like an event handler), a `Ref` or `Computed` reads as its current value, and other values are converted when read, as goesm converts the values Go passes to JavaScript. A component that exposes nothing is closed, as a `<script setup>` is. vue-tsc sees the exposed names, typed `any`.
+* `vue.OnMounted`, `OnBeforeUnmount`, `OnUnmounted`, `vue.Emitter` and `vue.Expose` belong to the component being set up: call them from the top level of the block. `emit("update:modelValue", v)` with a `ModelValue` prop makes the component work with `v-model`.
 * Outside a goesm build (`go test`), Refs and Computeds hold and compute values, and watchers and hooks never run.
 * gosfc needs goesm v0.0.1-beta.6 or newer: handles inside an `any` have their methods, several packages build as one program, and a component's function variables (`update := func() {...}`) do not make its setup async because some other function value of the app blocks.
 
@@ -198,6 +200,28 @@ func Yen(n int) string {
 * `type Props struct {...}` receives `Astro.props`, with the same field names as the props of a `.vue` block (`Label` is read from `label`).
 * Values reach the template converted for JavaScript (strings, slices as arrays, structs as objects), and the template can call Go functions.
 * If the Go code blocks (channels, `time.Sleep`, ...), the frontmatter waits for it.
+* Named exports of JavaScript modules come in through goesm's [`//goesm:import`](https://github.com/goesm-dev/goesm/blob/main/docs/js-imports.md), as in a Vue component: `//goesm:import "astro:content" getCollection await` before `func getCollection(name string) (js.Value, error)`, or before a `var` for a value.
+* `Astro` is Astro's global, an `astro.Context` of the package `github.com/goesm-dev/gosfc/astro`: the `js.Value` of the global, with typed accessors `Param("slug")`, `Params()`, `URL()` (a `*url.URL`), `Site()`, `Props()`, `Request()`, `Locals()` and `Cookies()`. `Astro.Respond(Astro.Redirect("/login", 302))` makes the page answer with that Response instead of its template, as `return Astro.redirect(...)` does (the frontmatter still runs to its end).
+* The page's exports are declared by their Go names. `func GetStaticPaths() []astro.StaticPath` is `getStaticPaths`: it is declared at package level (Astro calls it outside any render, so it does not see the frontmatter's variables), and each `astro.StaticPath` has the route's `Params` and the page's `Props`, which `type Props struct` reads. `const Prerender = false` and `const Partial = true` are `prerender` and `partial`, with a literal `true` or `false`.
+
+```astro
+---go
+// src/pages/posts/[slug].astro
+import (
+	"strings"
+
+	"github.com/goesm-dev/gosfc/astro"
+)
+
+func GetStaticPaths() []astro.StaticPath {
+	return []astro.StaticPath{{Params: map[string]string{"slug": "hello-world"}}}
+}
+
+title := strings.ReplaceAll(Astro.Param("slug"), "-", " ")
+---
+
+<h1>{title}</h1>
+```
 
 A `<script lang="go">` in the template is Go that runs in the browser once per page, like Astro's processed `<script>`: Astro bundles it, and a component used several times includes it once. The template does not see its top-level names; use `syscall/js` to work with the DOM.
 
@@ -220,11 +244,23 @@ button.Call("addEventListener", "click", js.FuncOf(func(this js.Value, args []js
 </script>
 ```
 
+Endpoints and middleware can be Go packages too, without a TypeScript file: name them in the options of `@gosfc/astro`.
+
+```js
+// astro.config.mjs
+gosfc({
+  routes: { "/api/[id].json": "example.com/app/src/api" }, // or { package: "...", prerender: false }
+  middleware: "example.com/app/src/server",                // or a list
+});
+```
+
+* A route's package exports the methods of the endpoint as Go functions (`func GET(ctx js.Value) (js.Value, error)` returns a `Response`), and `GetStaticPaths` for a dynamic route that is prerendered.
+* A middleware package exports `func OnRequest(ctx, next js.Value) (js.Value, error)`, which runs before the middleware of `src/middleware`. `promise.Await(next.Invoke())` (goesm's package `github.com/goesm-dev/goesm/promise`) waits for the rest of the chain.
+* `astro.Context{Value: ctx}` gives the context the accessors of `Astro`. [examples/astro-go](examples/astro-go) has a page, an endpoint and a middleware in Go.
+* `@gosfc/astro` writes a module that re-exports each package to `.astro/integrations/_gosfc_astro/`, and gives it to Astro (`injectRoute`, `addMiddleware`).
+
 Limitations:
 
-* A Go frontmatter cannot export anything, so `getStaticPaths` and other exports need a TypeScript frontmatter. That frontmatter can still import Go with a `go:` specifier (next section).
-* Go sees nothing of the `Astro` global but the props. For `Astro.url`, `Astro.cookies`, redirects and so on, use a TypeScript frontmatter.
-* Go import syntax can write a default import or a side-effect import only. To use named exports of a JavaScript module, re-export them as the default export of a small module of your own and import that.
 * `<script lang="go">` takes no other attributes (`is:inline`, `define:vars`, ...).
 
 ## Importing Go from JavaScript
@@ -241,6 +277,8 @@ export function getStaticPaths() {
 }
 ---
 ```
+
+A Go function returns its results to JavaScript directly, or a Promise of them when goesm finds that it may block: it waits on a channel, a mutex, `time.Sleep` or an imported Promise, or calls a function that does, including through an interface method or a function value of which some implementation in the program blocks. The server's program is the Go of every frontmatter, endpoint and middleware, so a function value that blocks in one of them makes the calls through values of its type async in all of them.
 
 TypeScript sees the types of these imports. With goesm v0.0.1-beta.8 or later, gosfc declares each package JavaScript imports with `go:` as a module, from the declaration file of its exports that goesm writes (`goesm emit-ts -dts`):
 
@@ -305,7 +343,7 @@ function onRated(stars: number) {
 </script>
 ```
 
-* The props are the fields of `type Props struct`, under the names the component declares them by (`label`, `max`, and `noteText` for a field tagged `json:"note-text"`), all optional. Their types are the ones goesm gives the fields (`<Rating :max="'three'" />` is `error TS2322: Type 'string' is not assignable to type 'number'`), read from the types file of the previous section, so that file must be in the TypeScript project. Until the Go has been compiled once (a dev server, a build, `astro sync` or `astro check`), the props are `any`.
+* The props are the fields of `type Props struct`, under the names the component declares them by (`label`, `max`, and `noteText` for a field tagged `json:"note-text"`). A prop is optional when its field has a `default` tag, has `omitempty` in its `js` or `json` tag, or has a type that holds nil (a pointer, slice, map, function or interface: `null`) or is a `bool`; the other props are required (`<Rating max="3" />` without `label` is `error TS2345`). Their types are the ones goesm gives the fields (`<Rating :max="'three'" />` is `error TS2322: Type 'string' is not assignable to type 'number'`), read from the types file of the previous section, so that file must be in the TypeScript project. Until the Go has been compiled once (a dev server, a build, `astro sync` or `astro check`), the props are `any`.
 * The events are the names the block passes as string literals to the function `vue.Emitter()` returns, with arguments of type `any`.
 * The template of a Go component reads the bindings of its Go block, typed `any`. A name the block does not declare is an error.
 

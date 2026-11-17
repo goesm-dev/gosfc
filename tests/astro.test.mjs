@@ -282,6 +282,53 @@ test("astro build: Go in .astro files without Vue installed", async () => {
   const js = [...html.matchAll(/<script type="module" src="(\/_astro\/[^"]+\.js)"><\/script>/g)].map((m) => readFileSync(path.join(dist, m[1]), "utf8")).join("\n");
   assert.match(js, /go-counter/);
   assert.match(js, /getElementById\(`price`\)/);
+
+  // Fully Go: a middleware (src/server) sets Astro.locals, which the Go
+  // frontmatter reads with Astro.Locals().
+  assert.match(html, /<p id="greeting">hello from Go middleware<\/p>/);
+  // A dynamic page: GetStaticPaths, Astro.Param, Astro.URL, props from the
+  // path, and a named export of a TypeScript module through //goesm:import.
+  const post = readFileSync(path.join(dist, "posts/second-post/index.html"), "utf8");
+  assert.match(post, /<h1>Second post<\/h1>/);
+  assert.match(post, /<p id="post">\/posts\/second-post\/ \(2 words\)<\/p>/);
+  assert.match(post, /<p id="greeting">hello from Go middleware<\/p>/);
+  // An endpoint written in Go (routes option), with its GetStaticPaths.
+  assert.deepEqual(JSON.parse(readFileSync(path.join(dist, "api/orange.json"), "utf8")), { id: "orange", path: "/api/orange.json" });
+  // The server's Go stays out of the browser.
+  assert.doesNotMatch(js, /hello from Go middleware|GetStaticPaths/);
+});
+
+test("astro dev: a Go frontmatter reads the request, redirects, and declares prerender", async (t) => {
+  const require = createRequire(path.join(goOnly, "package.json"));
+  const { dev } = await import(pathToFileURL(require.resolve("astro")).href);
+  const page = path.join(goOnly, "src/pages/gate.astro");
+  writeFileSync(
+    page,
+    `---go
+const Prerender = false
+
+if Astro.URL().Query().Get("to") == "post" {
+	Astro.Respond(Astro.Redirect("/posts/first-post/", 307))
+}
+query := Astro.URL().RawQuery
+---
+<p id="gate">{query}</p>
+`,
+  );
+  t.after(() => rmSync(page, { force: true }));
+  const server = await dev({ root: goOnly, logLevel: "silent", server: { port: 0 } });
+  t.after(() => server.stop());
+  const base = `http://localhost:${server.address.port}`;
+  // Rendered on demand (Prerender is false): the page sees the query.
+  let r = await fetch(base + "/gate?x=1");
+  assert.equal(r.status, 200);
+  assert.match(await r.text(), /<p id="gate"[^>]*>x=1<\/p>/);
+  r = await fetch(base + "/gate?to=post", { redirect: "manual" });
+  assert.equal(r.status, 307);
+  assert.equal(new URL(r.headers.get("location"), base).pathname, "/posts/first-post/");
+  // The endpoint and the middleware in Go.
+  r = await fetch(base + "/api/apple.json");
+  assert.deepEqual(await r.json(), { id: "apple", path: "/api/apple.json" });
 });
 
 test("astro sync writes the types of go: imports", async () => {

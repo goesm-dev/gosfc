@@ -23,8 +23,8 @@
 // rewrites when it compiles; astro sync (and so astro check) compiles the
 // Go to write it.
 
-import gosfcVite, { GO_TYPES_PLACEHOLDER, scanGoImportTypes, writeTypes } from "@gosfc/vite";
-import { existsSync } from "node:fs";
+import gosfcVite, { GO_TYPES_PLACEHOLDER, goPrerender, scanGoImportTypes, writeTypes } from "@gosfc/vite";
+import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
 import { createRequire } from "node:module";
 import { fileURLToPath, pathToFileURL } from "node:url";
@@ -32,19 +32,56 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 const TYPES_FILE = "go-imports.d.ts";
 
 /**
- * @param {{ vue?: false | import("@astrojs/vue").Options }} [options] options
- *   passed to @astrojs/vue when gosfc adds it, or false not to add it
+ * @typedef {{
+ *   vue?: false | import("@astrojs/vue").Options,
+ *   routes?: Record<string, string | { package: string, prerender?: boolean }>,
+ *   middleware?: string | string[],
+ * }} GosfcAstroOptions
+ *   vue: options passed to @astrojs/vue when gosfc adds it, or false not to add it;
+ *   routes: endpoints written in Go, by route pattern ("/api/[id].json"): the
+ *     import path of a Go package that exports GET, POST, ... (and whether
+ *     the route is prerendered);
+ *   middleware: Go packages that export OnRequest, run before the
+ *     middleware of src/middleware.
+ */
+
+/**
+ * @param {GosfcAstroOptions} [options]
  * @returns {import("astro").AstroIntegration}
  */
 export default function gosfc(options = {}) {
   /** @type {string | undefined} the file of the types of go: imports */
   let typesFile;
   let command = "";
+  /** @type {string | undefined} the project's root directory */
+  let root;
   return {
     name: "@gosfc/astro",
     hooks: {
-      "astro:config:setup": async ({ config, command: c, updateConfig }) => {
+      "astro:config:setup": async ({ config, command: c, updateConfig, injectRoute, addMiddleware, createCodegenDir }) => {
         command = c;
+        root = fileURLToPath(config.root);
+        // Endpoints and middleware in Go: Astro imports a module, generated
+        // in the integration's directory of .astro/, that re-exports the
+        // functions of the Go package (Astro reads a route's file, so it is
+        // a file rather than a virtual module).
+        const routes = Object.entries(options.routes ?? {});
+        const middleware = [options.middleware ?? []].flat();
+        if (routes.length || middleware.length) {
+          const dir = fileURLToPath(createCodegenDir());
+          for (const [pattern, r] of routes) {
+            const { package: pkg, prerender } = typeof r === "string" ? { package: r, prerender: undefined } : r;
+            const spec = JSON.stringify("go:" + pkg);
+            // The methods (GET, POST, ...) keep their names; GetStaticPaths
+            // is getStaticPaths.
+            const entrypoint = entryFile(dir, "routes", pkg, `import * as go from ${spec};\nexport * from ${spec};\nexport const getStaticPaths = Reflect.get(go, "GetStaticPaths");\n`);
+            injectRoute({ pattern, entrypoint, ...(prerender === undefined ? {} : { prerender }) });
+          }
+          for (const pkg of middleware) {
+            const entrypoint = entryFile(dir, "middleware", pkg, `export { OnRequest as onRequest } from ${JSON.stringify("go:" + pkg)};\n`);
+            addMiddleware({ entrypoint, order: "pre" });
+          }
+        }
         const integrations = [];
         if (options.vue !== false && !config.integrations.some((i) => i.name === "@astrojs/vue")) {
           const vue = await loadVue(config.root);
@@ -52,6 +89,20 @@ export default function gosfc(options = {}) {
         }
         const src = config.srcDir && fileURLToPath(config.srcDir);
         updateConfig({ integrations, vite: { plugins: [gosfcVite({ dts: () => typesFile, serverOnly: (file) => !!src && serverOnly(src, file) })] } });
+      },
+      // Astro reads a page's prerender option from its source, as
+      // `export const prerender = ...`; a Go frontmatter declares it as
+      // `const Prerender = ...`.
+      "astro:route:setup": ({ route }) => {
+        if (!root || !route.component.endsWith(".astro")) return;
+        let code;
+        try {
+          code = readFileSync(path.resolve(root, route.component), "utf8");
+        } catch {
+          return;
+        }
+        const prerender = goPrerender(code);
+        if (prerender !== undefined) route.prerender = prerender;
       },
       "astro:config:done": async ({ config, injectTypes, logger }) => {
         // Astro references the file, which gosfc writes itself (an empty
@@ -70,6 +121,20 @@ export default function gosfc(options = {}) {
       },
     },
   };
+}
+
+/**
+ * Writes the module of a route or middleware written as the Go package pkg
+ * to dir/kind/<pkg>.js, unless it holds content, and returns its path.
+ * @param {string} dir
+ * @param {string} kind
+ * @param {string} pkg
+ * @param {string} content
+ */
+function entryFile(dir, kind, pkg, content) {
+  const file = path.join(dir, kind, ...pkg.split("/")) + ".js";
+  writeTypes(file, content);
+  return file;
 }
 
 /**

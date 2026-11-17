@@ -14,10 +14,10 @@ func triggerRef(r js.Value)
 func jsComputed(get func() int) js.Value
 
 //goesm:import "vue" watch
-func jsWatch(src func() int, cb func()) js.Value
+func jsWatch(src func() int, cb func(), opts map[string]any) js.Value
 
 //goesm:import "vue" watchEffect
-func jsWatchEffect(f func()) js.Value
+func jsWatchEffect(f func(), opts map[string]any) js.Value
 
 //goesm:import "vue" getCurrentScope
 func getCurrentScope() js.Value
@@ -39,6 +39,9 @@ func onUnmounted(f func())
 
 //goesm:import "./call.js" call
 func call(f js.Value, args ...any)
+
+//goesm:import "./call.js" expose
+func expose(name string, get func() any)
 
 //goesm:import "vue" nextTick await
 func nextTick()
@@ -100,9 +103,20 @@ func (c *Computed[T]) Get() T {
 	return c.v
 }
 
+// sameJS compares two js.Values, which == cannot compare, with Equal.
+func sameJS(a, b any) (eq, ok bool) {
+	x, ok := a.(js.Value)
+	if !ok {
+		return false, false
+	}
+	y, ok := b.(js.Value)
+	return ok && x.Equal(y), true
+}
+
 // Watch calls cb with the new value each time src() returns a different
-// value. It returns a function that stops watching.
-func Watch[T comparable](src func() T, cb func(v T)) (stop func()) {
+// value (see Ref.Set for which values are the same). It returns a function
+// that stops watching.
+func Watch[T any](src func() T, cb func(v T), opts ...WatchOption) (stop func()) {
 	props := propsDep()
 	var last T
 	first := true
@@ -125,7 +139,7 @@ func Watch[T comparable](src func() T, cb func(v T)) (stop func()) {
 			first, last = false, v
 			n++
 			seen = n
-		} else if v != last {
+		} else if !same(v, last) {
 			last = v
 			n++
 		}
@@ -146,7 +160,7 @@ func Watch[T comparable](src func() T, cb func(v T)) (stop func()) {
 			return
 		}
 		fire()
-	})
+	}, watchOptions(opts))
 	if getCurrentScope().Truthy() {
 		// The component unmounted: a getter still in src calls back no more.
 		onScopeDispose(func() { stopped = true })
@@ -159,13 +173,42 @@ func Watch[T comparable](src func() T, cb func(v T)) (stop func()) {
 
 // WatchEffect runs f now and again each time a Ref or Computed it read
 // changes. It returns a function that stops watching.
-func WatchEffect(f func()) (stop func()) {
+func WatchEffect(f func(), opts ...WatchOption) (stop func()) {
 	props := propsDep()
 	h := jsWatchEffect(func() {
 		readProps(props)
 		f()
-	})
+	}, watchOptions(opts))
 	return func() { h.Invoke() }
+}
+
+// watchOptions are the options of Vue's watch and watchEffect.
+func watchOptions(opts []WatchOption) map[string]any {
+	o := map[string]any{}
+	for _, opt := range opts {
+		if opt.flush != "" {
+			o["flush"] = opt.flush
+		}
+	}
+	return o
+}
+
+// Expose makes v a property name of the component's public instance, which
+// a parent reaches through a template ref (<Child ref="child" />, then
+// child.value.Focus() in TypeScript, or child.Get().Get("Focus") in Go), as
+// Vue's defineExpose does. A function is called with its arguments and
+// result converted as goesm converts the values Go passes to JavaScript, and
+// renders the component again like an event handler; a Ref or Computed reads
+// as its current value; another value is converted each time it is read.
+// Call it from the top level of the block: it belongs to the component being
+// set up.
+func Expose(name string, v any) {
+	expose(name, func() any {
+		if r, ok := v.(valuer); ok {
+			return r.value()
+		}
+		return v
+	})
 }
 
 // OnMounted runs f once the component is in the page.

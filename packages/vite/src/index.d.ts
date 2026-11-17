@@ -49,3 +49,7 @@ export function scanGoImportTypes(root: string, outDirs?: string[]): Promise<str
 
 /** Writes content to file unless it already holds it. */
 export function writeTypes(file: string, content: string): void;
+
+/** The prerender option a Go frontmatter declares with `const Prerender = true` (or false), or undefined. */
+export function goPrerender(code: string): boolean | undefined;
+

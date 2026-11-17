@@ -14,9 +14,9 @@
 // A Ref bound in a template reads as its value, and v-model and ref="..."
 // write it. A Go function called from the template is re-run when a Ref it
 // read changes. Computed, Watch and WatchEffect derive values and run side
-// effects; OnMounted and the other hooks, and Emitter, need the component
-// being set up, so call them from the top level of a <script setup lang="go">
-// block.
+// effects (Flush sets when they run); OnMounted and the other hooks, Emitter
+// and Expose need the component being set up, so call them from the top
+// level of a <script setup lang="go"> block.
 //
 // Outside a goesm build (go test, go vet), the package works without Vue:
 // Refs and Computeds hold and compute their values, and watchers and hooks
