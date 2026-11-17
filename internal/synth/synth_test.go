@@ -129,14 +129,58 @@ func TestFuncColumnsPreserved(t *testing.T) {
 }
 
 func TestUnsupportedDeclarations(t *testing.T) {
-	out := build(t, "\nx := 1\nimport \"fmt\"\nfunc (p *T) M() {}\nfunc G[T any]() {}\n")
+	out := build(t, "\nx := 1\nimport \"fmt\"\nfunc G[T any]() {}\n")
 	var got []string
 	for _, d := range out.Diagnostics {
 		got = append(got, d.Message[:strings.Index(d.Message, " ")]+"@"+string(rune('0'+d.Line-10)))
 	}
-	want := []string{"imports@2", "methods@3", "generic@4"}
+	want := []string{"imports@2", "generic@3"}
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("diagnostics = %v, want %v", got, want)
+	}
+}
+
+// The block's types are package-level types: Props and the methods the block
+// declares use them, and the template reads the results of the methods.
+func TestBlockTypesAndMethods(t *testing.T) {
+	out := build(t, `
+import "strings"
+
+const prefix = "#"
+
+type Tag string
+
+func (t Tag) Label() string { return prefix + strings.ToUpper(string(t)) }
+
+type Props struct {
+	Tags []Tag
+	Kind Kind
+}
+
+type Kind int
+
+func (k *Kind) Next() { *k++ }
+
+func (p Props) First() Tag { return p.Tags[0] }
+
+first := props.First().Label()
+kind := props.Kind
+kind.Next()
+`)
+	if len(out.Diagnostics) > 0 {
+		t.Fatalf("%+v", out.Diagnostics)
+	}
+	if errs := check(t, out); len(errs) > 0 {
+		t.Fatalf("%v\n%s", errs, out.Go)
+	}
+	if got := names(out.Bindings); !reflect.DeepEqual(got, []string{"prefix", "props", "first", "kind"}) {
+		t.Errorf("bindings %v", got)
+	}
+	// A method sees the package's names, not the setup's.
+	out = build(t, "\ntype T int\n\nn := 1\n\nfunc (T) M() int { return n }\n")
+	errs := check(t, out)
+	if len(errs) != 1 || !strings.Contains(errs[0], vue+":15:") || !strings.Contains(errs[0], "undefined: n") {
+		t.Errorf("errors = %v", errs)
 	}
 }
 
@@ -161,6 +205,9 @@ type Props struct {
 	Skip string `+"`json:\"-\"`"+`
 	ID int `+"`json:\"id\" js:\"ID\"`"+`
 	Gone string `+"`json:\"gone\" js:\"-\"`"+`
+	Note string `+"`json:\"note,omitempty\"`"+`
+	Max *int
+	Min string `+"`js:\"min,omitempty\" json:\"lo\"`"+`
 }
 
 upper := strings.ToUpper(props.Route)
@@ -190,8 +237,13 @@ upper := strings.ToUpper(props.Route)
 	}
 	// The keys of the exported fields, which the glue declares as props.
 	// A js tag names the field as goesm's JS calling ABI does.
-	if want := []string{"Route", "n", "Size", "Gap", "Label", "ID"}; !reflect.DeepEqual(out.PropKeys, want) {
+	if want := []string{"Route", "n", "Size", "Gap", "Label", "ID", "note", "Max", "min"}; !reflect.DeepEqual(out.PropKeys, want) {
 		t.Errorf("keys %v, want %v", out.PropKeys, want)
+	}
+	// The fields the parent may leave out: a default tag, omitempty (of the
+	// tag that names the key) or a pointer.
+	if want := []string{"Size", "Gap", "Label", "note", "Max", "min"}; !reflect.DeepEqual(out.PropOptional, want) {
+		t.Errorf("optional %v, want %v", out.PropOptional, want)
 	}
 
 	out = build(t, "type Props int\n")

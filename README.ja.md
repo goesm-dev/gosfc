@@ -85,8 +85,9 @@ export default { plugins: [gosfc(), vue()] };
 
 * トップレベルは Vue の `<script setup>` と同じくコンポーネントインスタンスごとに上から 1 回実行されます。`x := ...`、`var`、`const`、`type`、`func F() {...}` が書けます。
 * トップレベルの変数・定数・関数はテンプレートから参照できます。Go 関数をテンプレートから呼ぶ（`@click="Increment"` など）と、表示が Go の値に追従します。値や、呼び出しの引数と戻り値は goesm の[エクスポートされた関数](https://github.com/goesm-dev/goesm/blob/main/docs/js-exports.ja.md)と同じく変換されます。文字列は文字列、スライスは配列、struct は普通のオブジェクトになります。メソッドを持つ struct 型へのポインタは、goesm が Go のオブジェクトのまま JavaScript に渡しますが、テンプレートには `js` タグか `json` タグの名前でフィールドを読める普通のオブジェクト（`{{ Get().x }}`）として見え、メソッドも呼べます（`@click="acct.Deposit(5)"`）。それを Go の関数に渡すと、元の Go のオブジェクトに戻ります。
+* テンプレートが読む名前は宣言されていなければなりません。ブロックのトップレベルの名前、props、テンプレート自身の変数（`v-for`、`v-slot`、`$event`）、Vue がテンプレートで許すグローバル（`Math`、`Date` など）、コンポーネントの `$` プロパティ（`$attrs`、`$slots`、`$t` のようなグローバルプロパティ）、普通の `<script>` のトップレベルの名前のどれかです。それ以外の名前（`<div v-if="missing">`）は、Vue なら `undefined` を読むところで、テンプレート上の位置のコンパイルエラーになります（`export default` を持つ普通の `<script>` はオプションで名前を宣言できるので、そのコンポーネントは調べません）。
 * setup と、描画中にテンプレートが呼ぶ Go 関数（`{{ Total() }}`、`:title="Name()"`、`v-if="Ready()"`）はブロックしてはいけません。Vue はどちらも待てません。そこで待つブロック（`time.Sleep`、チャネル、ミューテックス、インポートした Promise、またはそれらを呼ぶ関数の呼び出し）は、ブロックする呼び出しの連なりを示すコンパイルエラーになります。ブロックする処理は goroutine で実行し、結果を `vue.Ref` に入れてください。イベントハンドラーはブロックしてもかまいません。
-* `import` で取り込めるのは Go のパッケージだけです。`.astro` ファイルの Go のフロントマターでは、後述のとおり JavaScript のモジュールも import できます。Vue コンポーネントの Go ブロックには、Vue コンポーネント、TypeScript、JavaScript を goesm の [`//goesm:import`](https://github.com/goesm-dev/goesm/blob/main/docs/js-imports.ja.md) ディレクティブで取り込みます。コンポーネントやクラスなどの値は `var` の前に、関数は本体のない関数宣言の前にディレクティブを書きます。関数の引数と戻り値は自動で変換されます。どちらもブロックのほかの名前と同じくテンプレートから使えます。これらはパッケージレベルで宣言されるので、型にはインポートした型と組み込みの型を使え、ブロック内で宣言した型は使えません。
+* `import` で取り込めるのは Go のパッケージだけです。`.astro` ファイルの Go のフロントマターでは、後述のとおり JavaScript のモジュールも import できます。Vue コンポーネントの Go ブロックには、Vue コンポーネント、TypeScript、JavaScript を goesm の [`//goesm:import`](https://github.com/goesm-dev/goesm/blob/main/docs/js-imports.ja.md) ディレクティブで取り込みます。コンポーネントやクラスなどの値は `var` の前に、関数は本体のない関数宣言の前にディレクティブを書きます。関数の引数と戻り値は自動で変換されます。どちらもブロックのほかの名前と同じくテンプレートから使えます。これらはパッケージレベルで宣言されるので、型にはインポートした型、組み込みの型、ブロックで宣言した型を使えます。
 
   ```vue
   <template>
@@ -103,8 +104,8 @@ export default { plugins: [gosfc(), vue()] };
   func formatPrice(yen int) string
   </script>
   ```
-* メソッドとジェネリック関数は Go パッケージに置いてください。
-* props を受け取るには `type Props struct {...}` を宣言します。ブロックの中でその型の `props` 変数が使えます。フィールド `Route` は属性 `route`（`js` タグか `json` タグがあればその名前、または kebab-case の形）から読み、フィールドの型に変換します。文字列、bool、数値のほか、struct、スライス、ポインタ（`null` は nil）、関数も goesm の ABI のとおりに変換します。フィールドの `default:"..."` タグは、親が渡さなかった props の値になります。親が新しい props を渡すと `props` が置き換わり、テンプレート（`{{ props.Title }}`）も読み直します。フィールドは Vue の props として宣言されるので、ほかの属性（`class`、`style`、リスナー）は普通どおりルート要素にフォールスルーします。
+* `type` と `const` の宣言、メソッド（`func (t Tag) Label() string`）は、ブロックのパッケージのパッケージレベルで宣言されます。`Props` やメソッドはブロックの型を使えます。メソッドから見えるのはパッケージの名前（インポート、型、定数）で、setup の変数は見えません。ジェネリック関数は Go パッケージに置いてください。
+* props を受け取るには `type Props struct {...}` を宣言します。ブロックの中でその型の `props` 変数が使えます。フィールド `Route` は属性 `route`（`js` タグか `json` タグがあればその名前、または kebab-case の形）から読み、フィールドの型に変換します。文字列、bool、数値のほか、struct、スライス、ポインタ（`null` は nil）、関数も goesm の ABI のとおりに変換します。フィールドの `default:"..."` タグは、親が渡さなかった props の値になります。フィールドは型付きの Vue の props として宣言されます。`bool` のフィールドは `Boolean` の prop（`<Dialog open />` は true、属性がなければ false）で、`default` タグのあるフィールドはその値が標準値になります。テンプレートや `$props` から読んでも同じです。親が新しい props を渡すと `props` が置き換わり、テンプレート（`{{ props.Title }}`）も読み直します。フィールドは Vue の props として宣言されるので、ほかの属性（`class`、`style`、リスナー）は普通どおりルート要素にフォールスルーします。
 
   ```vue
   <script setup lang="go">
@@ -155,7 +156,7 @@ vue.Watch(func() int { return seconds.Get() }, func(n int) { emit("tick", n) })
 </script>
 ```
 
-* テンプレートにバインドした Ref は値として読め、どこで `Set` されても（別のパッケージからでも）追従します。Ref を Go パッケージに置いて、複数のコンポーネントで共有できます。すべてのコンポーネントの Go（と JavaScript が `go:` でインポートするパッケージ）は、Go のバイナリのパッケージと同じく 1 つの goesm プログラムなので、パッケージの変数はアプリ全体で 1 組です。ただし、別々に動くブラウザとサーバーで 1 組ずつです。ブラウザのプログラムには、サーバーだけで動く Go（`.astro` の Go のフロントマター、TypeScript のフロントマターの `go:` インポート、`@gosfc/astro` ではエンドポイント・ミドルウェア・アクションの `go:` インポート）を入れません。そのため、その Go が使うものでブラウザのバンドルが大きくなりません。`v-model` と `ref="..."` は `Set` で書き込みます。
+* テンプレートにバインドした Ref は値として読め、どこで `Set` されても（別のパッケージからでも）追従します。Ref を Go パッケージに置いて、複数のコンポーネントで共有できます。すべてのコンポーネントの Go（と JavaScript が `go:` でインポートするパッケージ）は、Go のバイナリのパッケージと同じく 1 つの goesm プログラムなので、パッケージの変数はアプリ全体で 1 組です。ただし、別々に動くブラウザとサーバーで 1 組ずつです。ブラウザのプログラムには、サーバーだけで動く Go（`.astro` の Go のフロントマター、TypeScript のフロントマターの `go:` インポート、`@gosfc/astro` ではエンドポイント・ミドルウェア・アクションの `go:` インポート）を入れません。そのため、その Go が使うものでブラウザのバンドルが大きくなりません。`v-model` と `ref="..."` は `Set` で書き込みます。関数 ref（`:ref="(el) => SetEl(el)"`）から Go を呼べます。Vue はページのパッチ中にそれを呼ぶので、その呼び出しではコンポーネントを再レンダーしません。テンプレートに出すものは `vue.Ref` に入れてください。
 * テンプレートから呼んだ Go 関数は、その中で読んだ Ref が変わると再実行されます。
 * `vue.NewComputed` はキャッシュされる派生値を作ります。`vue.Watch` と `vue.WatchEffect` は副作用を実行し、コンポーネントの props が変わったときにも再実行されます。`vue.Flush("post")` を渡すと Vue がページを更新した後に、`vue.Flush("sync")` なら `Set` のたびにすぐ実行します（`vue.Watch(src, cb, vue.Flush("post"))`）。Vue と同じく標準は `"pre"` です。`Watch` のソースはどの型でもかまいません。値は `==` で、`js.Value` は `Equal` で比べ、比べられない値（スライス、マップ、関数）は毎回新しい値とみなします。`Ref` の `Set` も同じように比べます。
 * `vue.Expose("Focus", Focus)` は、`defineExpose` と同じく、親がテンプレート ref から使えるプロパティを足します。関数は呼べて（イベントハンドラと同じくコンポーネントを再レンダーします）、`Ref` と `Computed` は今の値として読め、ほかの値は読むときに goesm が Go から JavaScript に渡す値と同じく変換されます。何も公開しないコンポーネントは、`<script setup>` と同じく閉じています。vue-tsc には公開した名前が `any` 型で見えます。
@@ -304,7 +305,7 @@ function onRated(stars: number) {
 </script>
 ```
 
-* props は `type Props struct` のフィールドで、コンポーネントが宣言する名前（`label`、`max`、`json:"note-text"` タグのフィールドなら `noteText`）になり、どれも省略できます。型は goesm がフィールドに付ける型です（`<Rating :max="'three'" />` は `error TS2322: Type 'string' is not assignable to type 'number'` になります）。前の節の型ファイルから読むので、そのファイルを TypeScript のプロジェクトに含めてください。Go を一度コンパイルする（開発サーバー、ビルド、`astro sync`、`astro check`）までは、props は `any` です。
+* props は `type Props struct` のフィールドで、コンポーネントが宣言する名前（`label`、`max`、`json:"note-text"` タグのフィールドなら `noteText`）になります。フィールドに `default` タグがある、`js` か `json` タグに `omitempty` がある、または型が nil を持つ（ポインタ、スライス、マップ、関数、インターフェース：`null`）か `bool` なら、その prop は省略できます。ほかの props は必須です（`label` のない `<Rating max="3" />` は `error TS2345` になります）。型は goesm がフィールドに付ける型です（`<Rating :max="'three'" />` は `error TS2322: Type 'string' is not assignable to type 'number'` になります）。前の節の型ファイルから読むので、そのファイルを TypeScript のプロジェクトに含めてください。Go を一度コンパイルする（開発サーバー、ビルド、`astro sync`、`astro check`）までは、props は `any` です。
 * イベントは、`vue.Emitter()` が返す関数にブロックが文字列リテラルで渡す名前で、引数は `any` です。
 * Go のコンポーネントのテンプレートは、Go ブロックのバインディングを `any` 型として読みます。ブロックが宣言していない名前はエラーになります。
 

@@ -2,6 +2,7 @@
   <div class="child">
     <span class="label">{{ props.Label }}</span>
     <span class="size">{{ props.Size }}</span>
+    <span class="vue-props">{{ open }} {{ props.Open }} {{ size }}</span>
     <span class="note">{{ props["display-note"] }}</span>
     <span class="seen">{{ seen }}</span>
     <span class="shared">{{ ticks }}</span>
@@ -19,6 +20,8 @@ type Props struct {
 	Label string
 	Count int
 	Size  int `default:"20"`
+	// A bool field is a Boolean prop: a bare attribute is true.
+	Open bool
 	// A hyphenated key: Vue declares the prop as displayNote.
 	Note string `json:"display-note"`
 }
