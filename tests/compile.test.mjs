@@ -171,11 +171,46 @@ test("Go syntax errors and unused imports are reported at the .vue position", as
   assert.match(e2.message, /src\/TmpUnused\.vue:3:8: "strings" imported and not used \[go\/types\]/);
 });
 
-test("gosfc-level errors: methods, JS reserved words, <script lang=go>", async () => {
-  const methods = `<script setup lang="go">\ntype T struct{}\n\nfunc (T) M() {}\n</script>\n`;
-  let e = await compileError(component("TmpMethod.vue", methods), methods);
-  assert.match(e.message, /src\/TmpMethod\.vue:4:1: methods cannot be declared/);
+test("types and methods declared in the Go block, used by Props", async () => {
+  const source = `<template>
+  <p>{{ label }} {{ Next() }}</p>
+</template>
 
+<script setup lang="go">
+import "strings"
+
+type Tag string
+
+func (t Tag) Label() string { return "#" + strings.ToUpper(string(t)) }
+
+type Level int
+
+type Props struct {
+	Tag   Tag
+	Level Level
+}
+
+func (p Props) Higher() Level { return p.Level + 1 }
+
+label := props.Tag.Label()
+
+func Next() Level { return props.Higher() }
+</script>
+`;
+  const file = component("TmpBlockTypes.vue", source);
+  const r = await compileSfc(source, file, { root: app });
+  const setup = r.modules.find((m) => m.importPath.endsWith("/tmpblocktypes_vue"));
+  assert.ok(setup, "synthetic package was not lowered");
+  // The methods map back to the .vue file.
+  assert.deepEqual(setup.map.sources, [file]);
+
+  const outside = `<template><p>{{ n }}</p></template>\n<script setup lang="go">\ntype T int\n\nn := 1\n\nfunc (T) M() int { return n }\n</script>\n`;
+  const e = await compileError(component("TmpMethodScope.vue", outside), outside);
+  assert.match(e.message, /src\/TmpMethodScope\.vue:7:27: undefined: n \[go\/types\]/);
+});
+
+test("gosfc-level errors: JS reserved words, <script lang=go>", async () => {
+  let e;
   const reserved = `<script setup lang="go">\nnew := 1\n</script>\n`;
   e = await compileError(component("TmpReserved.vue", reserved), reserved);
   assert.match(e.message, /src\/TmpReserved\.vue:2:1: new is a reserved word in JavaScript/);

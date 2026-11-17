@@ -111,8 +111,12 @@ export function readProps(zero, attrs, defaults = {}, declared) {
   return props;
 }
 
-// defaultToGo converts a default tag for the field whose zero value is zero.
-function defaultToGo(zero, d) {
+/**
+ * Converts a default tag for the field whose zero value is zero.
+ * @param {unknown} zero
+ * @param {string} d
+ */
+export function defaultToGo(zero, d) {
   switch (typeof zero) {
     case "number":
       return Number(d);

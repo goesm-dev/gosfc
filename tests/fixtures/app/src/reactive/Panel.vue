@@ -8,7 +8,7 @@
     <canvas ref="canvas" width="10" height="10"></canvas>
     <p class="canvas">{{ canvasTag }}</p>
     <Child class="first" :label="name" :count="ticks" @picked="Picked" />
-    <Child label="defaults" display-note="noted" />
+    <Child label="defaults" display-note="noted" open />
     <p class="picked">{{ picked }}</p>
     <p class="mounted">{{ mounted }}</p>
     <p class="watched">{{ watched }}</p>
@@ -16,6 +16,7 @@
     <p class="slow">{{ slow }}</p>
     <p class="slowest">{{ slowest }}</p>
     <button class="bump" @click="bump">{{ clicks }}</button>
+    <FunctionRef />
   </div>
 </template>
 
@@ -31,6 +32,9 @@ import (
 
 //goesm:import "./Child.vue"
 var Child js.Value
+
+//goesm:import "./FunctionRef.vue"
+var FunctionRef js.Value
 
 ticks := clock.Ticks
 doubled := vue.NewComputed(func() int { return ticks.Get() * 2 })
