@@ -13,8 +13,12 @@
     "access": "public"
   },
   "type": "module",
+  "types": "./src/index.d.ts",
   "exports": {
-    ".": "./src/index.js",
+    ".": {
+      "types": "./src/index.d.ts",
+      "default": "./src/index.js"
+    },
     "./vue-language-plugin": "./src/vue-language-plugin.cjs"
   },
   "files": [

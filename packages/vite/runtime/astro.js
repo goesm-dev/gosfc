@@ -5,11 +5,12 @@
 // block declares `type Props struct {...}`, waits for it when the block
 // blocks (a blocking setup returns a Promise; Astro's frontmatter allows
 // top-level await), and returns a function that reads one binding converted
-// for the template (conversions: convert.js). Astro renders a template once,
+// for the template (conversions: convert.js; Go objects: handles.js). Astro renders a template once,
 // so there is no reactivity: a Go function called from the template returns
 // its result and that is all.
 
-import { fromGo, readProps } from "gosfc:convert.js";
+import { readProps } from "gosfc:convert.js";
+import { toTemplate } from "gosfc:handles.js";
 
 /**
  * @param {(props?: any) => any} setup
@@ -20,5 +21,5 @@ import { fromGo, readProps } from "gosfc:convert.js";
  */
 export async function runGo(setup, props, astroProps, defaults) {
   const lookup = await (props ? setup(readProps(props(), astroProps ?? {}, defaults)) : setup());
-  return (name) => fromGo(lookup(name));
+  return (name) => toTemplate(lookup(name));
 }
