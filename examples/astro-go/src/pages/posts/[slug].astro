@@ -1,0 +1,45 @@
+---go
+import (
+	"strings"
+
+	"github.com/goesm-dev/gosfc/astro"
+)
+
+// A named export of a TypeScript module.
+//
+//goesm:import "../../lib/title.ts" titleCase
+func titleCase(s string) string
+
+type Props struct {
+	Words int `json:"words"`
+}
+
+// GetStaticPaths is the page's getStaticPaths.
+func GetStaticPaths() []astro.StaticPath {
+	var paths []astro.StaticPath
+	for _, slug := range []string{"first-post", "second-post"} {
+		paths = append(paths, astro.StaticPath{
+			Params: map[string]string{"slug": slug},
+			Props:  map[string]int{"words": len(strings.Split(slug, "-"))},
+		})
+	}
+	return paths
+}
+
+slug := Astro.Param("slug")
+title := titleCase(strings.ReplaceAll(slug, "-", " "))
+path := Astro.URL().Path
+greeting := Astro.Locals().Get("greeting").String()
+---
+
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>{title}</title>
+  </head>
+  <body>
+    <h1>{title}</h1>
+    <p id="post">{path} ({props.words} words)</p>
+    <p id="greeting">{greeting}</p>
+  </body>
+</html>

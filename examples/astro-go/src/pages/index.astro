@@ -2,6 +2,9 @@
 import "strings"
 
 title := strings.ToUpper("go without vue")
+
+// The Go middleware (src/server) put it in Astro.locals.
+greeting := Astro.Locals().Get("greeting").String()
 ---
 
 <html lang="ja">
@@ -11,6 +14,7 @@ title := strings.ToUpper("go without vue")
   </head>
   <body>
     <h1>{title}</h1>
+    <p id="greeting">{greeting}</p>
     <button id="go-counter" type="button">0</button>
     <p id="price"></p>
     <script>
