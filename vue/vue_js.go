@@ -41,7 +41,7 @@ func onUnmounted(f func())
 func call(f js.Value, args ...any)
 
 //goesm:import "./call.js" expose
-func expose(name string, get func() any)
+func expose(inst js.Value, name string, get func() any)
 
 //goesm:import "vue" nextTick await
 func nextTick()
@@ -203,7 +203,7 @@ func watchOptions(opts []WatchOption) map[string]any {
 // Call it from the top level of the block: it belongs to the component being
 // set up.
 func Expose(name string, v any) {
-	expose(name, func() any {
+	expose(getCurrentInstance(), name, func() any {
 		if r, ok := v.(valuer); ok {
 			return r.value()
 		}
