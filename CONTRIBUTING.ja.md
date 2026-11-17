@@ -62,7 +62,7 @@ pnpm install
 pnpm test
 ```
 
-`go test ./...`（`internal/synth` など）と `tests/*.test.mjs`（Astro のビルド、Vite のビルド / SSR / HMR、診断）が走ります。ブラウザでの HMR テストは `/opt/pw-browsers/chromium` または `CHROMIUM` 環境変数の Chromium を使い、見つからなければスキップします。
+`go test ./...`（`internal/synth` など）と `tests/*.test.mjs`（Astro のビルド、Vite のビルド / SSR / HMR、診断、vue-tsc と astro check）が走ります。ブラウザでの HMR テストは `/opt/pw-browsers/chromium` または `CHROMIUM` 環境変数の Chromium を使い、見つからなければスキップします。
 
 サンプルを手元で動かす場合：
 

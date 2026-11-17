@@ -40,6 +40,8 @@ Use `<script setup lang="go">` in `.vue` files and Go in `.astro` frontmatter as
 
 The TypeScript types of the Go packages that TypeScript imports with `go:` are written to `.astro/integrations/_gosfc_astro/go-imports.d.ts`, which `.astro/types.d.ts` references (with goesm v0.0.1-beta.8 or later). `astro sync` and `astro check` compile the Go to write them.
 
+For vue-tsc and the Vue editor extension to see Go components from TypeScript ones, name the Vue language plugin in `tsconfig.json`: `"vueCompilerOptions": { "plugins": ["@gosfc/astro/vue-language-plugin"] }`. The props of a Go component then have the types goesm gives the fields of its `Props`, read from the file above.
+
 For Vite + Vue without Astro, use [`@gosfc/vite`](https://www.npmjs.com/package/@gosfc/vite) instead.
 
 ## Documentation

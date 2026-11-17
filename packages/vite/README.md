@@ -39,6 +39,18 @@ Use `<script setup lang="go">` in `.vue` files. Components with `lang="ts"` or p
 
 The plugin writes the TypeScript types of the Go packages that JavaScript imports with `go:` to `gosfc.d.ts` in Vite's root (with goesm v0.0.1-beta.8 or later). Include it in `tsconfig.json`, or pick another file with `gosfc({ dts: "src/gosfc.d.ts" })`; `gosfc({ dts: false })` writes none.
 
+With it, a TypeScript component can import a Go component under vue-tsc and the Vue editor extension. Name the Vue language plugin in `tsconfig.json`:
+
+```json
+{
+  "vueCompilerOptions": {
+    "plugins": ["@gosfc/vite/vue-language-plugin"]
+  }
+}
+```
+
+The props of a Go component are the fields of its `Props`, with the types goesm gives them (from `gosfc.d.ts`, or `any` before the Go has been compiled), and its events are the names it passes to the function `vue.Emitter()` returns.
+
 For Astro, use [`@gosfc/astro`](https://www.npmjs.com/package/@gosfc/astro) instead.
 
 ## Documentation

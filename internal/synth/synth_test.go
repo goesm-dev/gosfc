@@ -159,6 +159,8 @@ type Props struct {
 	Label string `+"`default:\"none\"`"+`
 	hidden bool
 	Skip string `+"`json:\"-\"`"+`
+	ID int `+"`json:\"id\" js:\"ID\"`"+`
+	Gone string `+"`json:\"gone\" js:\"-\"`"+`
 }
 
 upper := strings.ToUpper(props.Route)
@@ -187,13 +189,66 @@ upper := strings.ToUpper(props.Route)
 		t.Errorf("defaults %v, want %v", out.PropDefaults, want)
 	}
 	// The keys of the exported fields, which the glue declares as props.
-	if want := []string{"Route", "n", "Size", "Gap", "Label"}; !reflect.DeepEqual(out.PropKeys, want) {
+	// A js tag names the field as goesm's JS calling ABI does.
+	if want := []string{"Route", "n", "Size", "Gap", "Label", "ID"}; !reflect.DeepEqual(out.PropKeys, want) {
 		t.Errorf("keys %v, want %v", out.PropKeys, want)
 	}
 
 	out = build(t, "type Props int\n")
 	if len(out.Diagnostics) != 1 || !strings.Contains(out.Diagnostics[0].Message, "Props must be a struct type") {
 		t.Errorf("%+v", out.Diagnostics)
+	}
+}
+
+// The events are the string literals passed to the variables holding
+// vue.Emitter(), under whatever name the block imports the package.
+func TestEmits(t *testing.T) {
+	for _, tc := range []struct {
+		src  string
+		want []string
+	}{
+		{`
+import "github.com/goesm-dev/gosfc/vue"
+
+emit := vue.Emitter()
+
+func Pick(n int) {
+	emit("picked", n)
+	if n > 1 {
+		emit("update:modelValue", n)
+	}
+	emit("picked", 0)
+}
+`, []string{"picked", "update:modelValue"}},
+		{`
+import (
+	"strings"
+
+	v "github.com/goesm-dev/gosfc/vue"
+)
+
+var send = v.Emitter()
+send(strings.ToLower("X"))
+send(` + "`raw`" + `)
+`, []string{"raw"}},
+		{`
+import . "github.com/goesm-dev/gosfc/vue"
+
+e := Emitter()
+e("dot")
+`, []string{"dot"}},
+		// Another package's Emitter, or none at all.
+		{`
+import "example.com/app/vue"
+
+emit := vue.Emitter()
+emit("other")
+`, nil},
+		{`x := 1`, nil},
+	} {
+		if got := build(t, tc.src).Emits; !reflect.DeepEqual(got, tc.want) {
+			t.Errorf("emits %q, want %q in\n%s", got, tc.want, tc.src)
+		}
 	}
 }
 
