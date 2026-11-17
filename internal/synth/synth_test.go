@@ -252,6 +252,21 @@ upper := strings.ToUpper(props.Route)
 	}
 }
 
+// The exposed names are the string literals passed to vue.Expose.
+func TestExposes(t *testing.T) {
+	out := build(t, `
+import v "github.com/goesm-dev/gosfc/vue"
+
+count := v.NewRef(0)
+v.Expose("count", count)
+v.Expose("Reset", func() { count.Set(0) })
+v.Expose("count", 1)
+`)
+	if want := []string{"count", "Reset"}; !reflect.DeepEqual(out.Exposes, want) {
+		t.Errorf("exposes %v, want %v", out.Exposes, want)
+	}
+}
+
 // The events are the string literals passed to the variables holding
 // vue.Emitter(), under whatever name the block imports the package.
 func TestEmits(t *testing.T) {

@@ -17,6 +17,8 @@
     <p class="slowest">{{ slowest }}</p>
     <button class="bump" @click="bump">{{ clicks }}</button>
     <FunctionRef />
+    <Exposer ref="exposer" />
+    <button class="use-exposed" @click="UseExposed">{{ exposed }}</button>
   </div>
 </template>
 
@@ -36,6 +38,9 @@ var Child js.Value
 //goesm:import "./FunctionRef.vue"
 var FunctionRef js.Value
 
+//goesm:import "./Exposer.vue"
+var Exposer js.Value
+
 ticks := clock.Ticks
 doubled := vue.NewComputed(func() int { return ticks.Get() * 2 })
 name := vue.NewRef("gopher")
@@ -48,6 +53,16 @@ watched := vue.NewRef(0)
 // clicks is a plain variable; bump, a function in a Ref, changes it.
 clicks := 0
 bump := vue.NewRef(func() { clicks++ })
+
+// exposer is the Exposer's public instance: what it exposes.
+exposer := vue.NewRef(js.Null())
+exposed := vue.NewRef("")
+
+func UseExposed() {
+	ex := exposer.Get()
+	ex.Call("Add", 2)
+	exposed.Set(ex.Get("label").String() + ":" + strings.Repeat("+", ex.Get("count").Int()))
+}
 
 func Parity() string {
 	if ticks.Get()%2 == 0 {
