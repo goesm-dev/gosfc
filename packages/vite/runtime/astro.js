@@ -17,9 +17,11 @@ import { toTemplate } from "gosfc:handles.js";
  * @param {(() => Record<string, unknown>) | null} props zero value of the block's Props
  * @param {Record<string, unknown>} astroProps Astro.props
  * @param {Record<string, string>} [defaults] the `default` tags of the Props fields
+ * @param {object} [astro] Astro's global, when the block reads Astro (the
+ *   setup function's last parameter)
  * @returns {Promise<(name: string) => any>}
  */
-export async function runGo(setup, props, astroProps, defaults) {
-  const lookup = await (props ? setup(readProps(props(), astroProps ?? {}, defaults)) : setup());
+export async function runGo(setup, props, astroProps, defaults, astro) {
+  const lookup = await (props ? setup(readProps(props(), astroProps ?? {}, defaults), astro) : setup(astro));
   return (name) => toTemplate(lookup(name));
 }

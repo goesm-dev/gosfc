@@ -635,5 +635,5 @@ function scanAstro(code) {
   return [...specs].map((p) => `import ${JSON.stringify(p)};\n`).join("") + "export default {};\n";
 }
 
-export { compileAstro, compileSfc } from "./compile.js";
+export { compileAstro, compileSfc, goPrerender } from "./compile.js";
 export { PLACEHOLDER as GO_TYPES_PLACEHOLDER, scanGoImportTypes, writeTypes } from "./types.js";

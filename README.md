@@ -200,6 +200,28 @@ func Yen(n int) string {
 * `type Props struct {...}` receives `Astro.props`, with the same field names as the props of a `.vue` block (`Label` is read from `label`).
 * Values reach the template converted for JavaScript (strings, slices as arrays, structs as objects), and the template can call Go functions.
 * If the Go code blocks (channels, `time.Sleep`, ...), the frontmatter waits for it.
+* Named exports of JavaScript modules come in through goesm's [`//goesm:import`](https://github.com/goesm-dev/goesm/blob/main/docs/js-imports.md), as in a Vue component: `//goesm:import "astro:content" getCollection await` before `func getCollection(name string) (js.Value, error)`, or before a `var` for a value.
+* `Astro` is Astro's global, an `astro.Context` of the package `github.com/goesm-dev/gosfc/astro`: the `js.Value` of the global, with typed accessors `Param("slug")`, `Params()`, `URL()` (a `*url.URL`), `Site()`, `Props()`, `Request()`, `Locals()` and `Cookies()`. `Astro.Respond(Astro.Redirect("/login", 302))` makes the page answer with that Response instead of its template, as `return Astro.redirect(...)` does (the frontmatter still runs to its end).
+* The page's exports are declared by their Go names. `func GetStaticPaths() []astro.StaticPath` is `getStaticPaths`: it is declared at package level (Astro calls it outside any render, so it does not see the frontmatter's variables), and each `astro.StaticPath` has the route's `Params` and the page's `Props`, which `type Props struct` reads. `const Prerender = false` and `const Partial = true` are `prerender` and `partial`, with a literal `true` or `false`.
+
+```astro
+---go
+// src/pages/posts/[slug].astro
+import (
+	"strings"
+
+	"github.com/goesm-dev/gosfc/astro"
+)
+
+func GetStaticPaths() []astro.StaticPath {
+	return []astro.StaticPath{{Params: map[string]string{"slug": "hello-world"}}}
+}
+
+title := strings.ReplaceAll(Astro.Param("slug"), "-", " ")
+---
+
+<h1>{title}</h1>
+```
 
 A `<script lang="go">` in the template is Go that runs in the browser once per page, like Astro's processed `<script>`: Astro bundles it, and a component used several times includes it once. The template does not see its top-level names; use `syscall/js` to work with the DOM.
 
@@ -222,11 +244,23 @@ button.Call("addEventListener", "click", js.FuncOf(func(this js.Value, args []js
 </script>
 ```
 
+Endpoints and middleware can be Go packages too, without a TypeScript file: name them in the options of `@gosfc/astro`.
+
+```js
+// astro.config.mjs
+gosfc({
+  routes: { "/api/[id].json": "example.com/app/src/api" }, // or { package: "...", prerender: false }
+  middleware: "example.com/app/src/server",                // or a list
+});
+```
+
+* A route's package exports the methods of the endpoint as Go functions (`func GET(ctx js.Value) (js.Value, error)` returns a `Response`), and `GetStaticPaths` for a dynamic route that is prerendered.
+* A middleware package exports `func OnRequest(ctx, next js.Value) (js.Value, error)`, which runs before the middleware of `src/middleware`. `promise.Await(next.Invoke())` (goesm's package `github.com/goesm-dev/goesm/promise`) waits for the rest of the chain.
+* `astro.Context{Value: ctx}` gives the context the accessors of `Astro`. [examples/astro-go](examples/astro-go) has a page, an endpoint and a middleware in Go.
+* `@gosfc/astro` writes a module that re-exports each package to `.astro/integrations/_gosfc_astro/`, and gives it to Astro (`injectRoute`, `addMiddleware`).
+
 Limitations:
 
-* A Go frontmatter cannot export anything, so `getStaticPaths` and other exports need a TypeScript frontmatter. That frontmatter can still import Go with a `go:` specifier (next section).
-* Go sees nothing of the `Astro` global but the props. For `Astro.url`, `Astro.cookies`, redirects and so on, use a TypeScript frontmatter.
-* Go import syntax can write a default import or a side-effect import only. To use named exports of a JavaScript module, re-export them as the default export of a small module of your own and import that.
 * `<script lang="go">` takes no other attributes (`is:inline`, `define:vars`, ...).
 
 ## Importing Go from JavaScript
@@ -243,6 +277,8 @@ export function getStaticPaths() {
 }
 ---
 ```
+
+A Go function returns its results to JavaScript directly, or a Promise of them when goesm finds that it may block: it waits on a channel, a mutex, `time.Sleep` or an imported Promise, or calls a function that does, including through an interface method or a function value of which some implementation in the program blocks. The server's program is the Go of every frontmatter, endpoint and middleware, so a function value that blocks in one of them makes the calls through values of its type async in all of them.
 
 TypeScript sees the types of these imports. With goesm v0.0.1-beta.8 or later, gosfc declares each package JavaScript imports with `go:` as a module, from the declaration file of its exports that goesm writes (`goesm emit-ts -dts`):
 

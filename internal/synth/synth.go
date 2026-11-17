@@ -98,11 +98,37 @@ type Input struct {
 	// the Go frontmatter of an .astro file. They are left out of the Go file
 	// and reported in Output.JSImports.
 	JSImports bool `json:"jsImports"`
+	// Astro marks the Go frontmatter of an .astro file. The block may read
+	// Astro's global as Astro (an astro.Context of the package AstroPackage),
+	// which the setup function then takes as its last parameter, and it
+	// declares the page's exports by their Go names (see AstroExport).
+	Astro bool `json:"astro"`
 	// Used, when not nil, are the names the template may reference. The
 	// lookup function returns only those bindings, so that the code that only
 	// the others reach can be dropped; nil returns every binding.
 	Used []string `json:"used"`
 }
+
+// AstroPackage is the import path of gosfc's astro package, whose Context
+// is the type of Astro in a Go frontmatter.
+const AstroPackage = "github.com/goesm-dev/gosfc/astro"
+
+// AstroExport is an export of an .astro page that its Go frontmatter
+// declares: `func GetStaticPaths` (declared at package level, exported by
+// the package as Func) is the export getStaticPaths, and `const Prerender =
+// true` or `const Partial = false` the export prerender or partial with that
+// literal Value.
+type AstroExport struct {
+	Name  string `json:"name"`
+	Func  string `json:"func,omitempty"`
+	Value string `json:"value,omitempty"`
+}
+
+// astroFuncs and astroConsts are the Go names of the exports of a page.
+var (
+	astroFuncs  = map[string]string{"GetStaticPaths": "getStaticPaths"}
+	astroConsts = map[string]string{"Prerender": "prerender", "Partial": "partial"}
+)
 
 // JSImport is `import Name "path"` of a JavaScript module: a default import,
 // or a side-effect import when Name is "_".
@@ -156,6 +182,11 @@ type Output struct {
 	Exposes []string `json:"exposes,omitempty"`
 	// JSImports are the imports of JavaScript modules, in source order.
 	JSImports []JSImport `json:"jsImports"`
+	// UsesAstro is true when a Go frontmatter reads Astro: the setup
+	// function takes Astro's global after the props.
+	UsesAstro bool `json:"usesAstro,omitempty"`
+	// AstroExports are the exports a Go frontmatter declares.
+	AstroExports []AstroExport `json:"astroExports,omitempty"`
 }
 
 // IsJSImport reports whether an import path names a JavaScript module rather
@@ -268,9 +299,13 @@ func Build(in Input) Output {
 	}
 	tag := func(b *strings.Builder) { directive(b, in.TagLine, in.TagCol) }
 
-	var header, propsDecl, imported, decls, hoisted, body strings.Builder
+	var header, propsDecl, imported, exported, decls, hoisted, body strings.Builder
 	tag(&header)
 	fmt.Fprintf(&header, "package %s\n", in.Package)
+	if in.Astro && usesAstro(items) {
+		out.UsesAstro = true
+		fmt.Fprintf(&header, "import gosfcjs %q\nimport gosfcastro %q\n", "syscall/js", AstroPackage)
+	}
 
 	seen := map[string]bool{}
 	bind := func(name tok, kind string) {
@@ -347,6 +382,19 @@ func Build(in Input) Output {
 					diag(t0.off, "function %s has no body", name.lit)
 					continue
 				}
+				if in.Astro {
+					if export, ok := astroFuncs[name.lit]; ok {
+						// An export of the page is a function of the
+						// package, as Astro calls it outside any render.
+						l, c := pos(it.start())
+						directive(&exported, l, c)
+						exported.WriteString(text(it.start(), it.end()))
+						exported.WriteByte('\n')
+						out.AstroExports = append(out.AstroExports, AstroExport{Name: export, Func: name.lit})
+						importsDone = true
+						continue
+					}
+				}
 				sig := text(name.end, lbrace)
 				// func Name(...) {...}  becomes  Name=func(...) {...}
 				// "Name=func" is as long as "func Name", so every column
@@ -397,6 +445,9 @@ func Build(in Input) Output {
 				for _, n := range declNames(it.toks[1:]) {
 					bind(n, "const")
 				}
+				if in.Astro {
+					out.AstroExports = append(out.AstroExports, constExports(it.toks[1:], diag)...)
+				}
 			}
 			importsDone = true
 			l, c := pos(it.start())
@@ -428,15 +479,22 @@ func Build(in Input) Output {
 	b.WriteString(header.String())
 	b.WriteString(imported.String())
 	b.WriteString(decls.String())
-	param := ""
+	b.WriteString(exported.String())
+	var params []string
 	if out.Props {
 		b.WriteString(propsDecl.String())
 		tag(&b)
 		fmt.Fprintf(&b, "func %s() any { return %s{} }\n", PropsFunc, PropsType)
-		param = "props " + PropsType
+		params = append(params, "props "+PropsType)
+	}
+	if out.UsesAstro {
+		params = append(params, "gosfcAstro gosfcjs.Value")
 	}
 	tag(&b)
-	fmt.Fprintf(&b, "func %s(%s) func(string) any {\n", SetupFunc, param)
+	fmt.Fprintf(&b, "func %s(%s) func(string) any {\n", SetupFunc, strings.Join(params, ", "))
+	if out.UsesAstro {
+		b.WriteString("Astro := gosfcastro.Context{Value: gosfcAstro}\n_ = Astro\n")
+	}
 	b.WriteString(hoisted.String())
 	b.WriteString(body.String())
 	tag(&b)
@@ -462,6 +520,55 @@ func Build(in Input) Output {
 	}
 	b.WriteString("}\nreturn nil\n}\n}\n")
 	out.Go = b.String()
+	return out
+}
+
+// usesAstro reports whether the block reads the identifier Astro.
+func usesAstro(items []item) bool {
+	for _, it := range items {
+		for i, t := range it.toks {
+			if t.tok == token.IDENT && t.lit == "Astro" && (i == 0 || it.toks[i-1].tok != token.PERIOD) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// constExports returns the exports of a page among the constants declared
+// by the tokens after const: Prerender and Partial, whose value must be the
+// literal true or false, as Astro reads it from the source.
+func constExports(toks []tok, diag func(int, string, ...any)) []AstroExport {
+	var out []AstroExport
+	specs := [][]tok{toks}
+	if len(toks) > 0 && toks[0].tok == token.LPAREN {
+		specs = nil
+		var spec []tok
+		for _, t := range toks[1:] {
+			if t.tok == token.SEMICOLON || t.tok == token.RPAREN {
+				if len(spec) > 0 {
+					specs = append(specs, spec)
+				}
+				spec = nil
+				continue
+			}
+			spec = append(spec, t)
+		}
+	}
+	for _, sp := range specs {
+		if len(sp) == 0 || sp[0].tok != token.IDENT {
+			continue
+		}
+		name, ok := astroConsts[sp[0].lit]
+		if !ok {
+			continue
+		}
+		if len(sp) != 3 || sp[1].tok != token.ASSIGN || sp[2].tok != token.IDENT || (sp[2].lit != "true" && sp[2].lit != "false") {
+			diag(sp[0].off, "%s exports %s of the page, which Astro reads as a literal: declare it as const %s = true (or false)", sp[0].lit, name, sp[0].lit)
+			continue
+		}
+		out = append(out, AstroExport{Name: name, Value: sp[2].lit})
+	}
 	return out
 }
 
