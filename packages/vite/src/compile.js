@@ -158,6 +158,9 @@ export async function compileSfc(code, filename, opts) {
         `import { useGo as __gosfc_useGo } from ${JSON.stringify(RUNTIME_ID)};`,
         `const __gosfc = __gosfc_useGo(__gosfc_setup, ${version});`,
       ];
+  // What the block exposes with vue.Expose (an empty object closes the
+  // instance, as a <script setup> without defineExpose does).
+  glue.push("defineExpose(__gosfc.exposed);");
   const bindings = (synth.bindings ?? []).filter((b) => !vb.used || vb.used.includes(b.name));
   glue.push(...bindings.map((b) => `const ${b.name} = __gosfc.binding(${JSON.stringify(b.name)});`));
   // Keep the line count so positions after the block do not move.
