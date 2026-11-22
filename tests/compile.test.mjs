@@ -417,6 +417,16 @@ total := slowcomputed.Total
       [5, 1, "17"],
     ],
   );
+
+  // A Computed whose getter is a function of another package, made by a
+  // package with no function that blocks.
+  const passer = `<template>\n  <p>{{ loaded }}</p>\n</template>\n\n<script setup lang="go">\nimport "example.com/fixture/src/passcomputed"\n\nloaded := passcomputed.Loaded\n</script>\n`;
+  const p = await compileError(component("TmpComputedPasser.vue", passer), passer);
+  assert.deepEqual(
+    p.errors.map((x) => [x.line, x.column]),
+    [[5, 1]],
+  );
+  assert.match(p.errors[0].message, new RegExp(String.raw`^the getter of the vue\.Computed made at src/passcomputed/passcomputed\.go:11 blocks, .*:\n {4}src/slow/slow\.go:7: return wait\(\)\n {4}src/slow/slow\.go:11: time\.Sleep\(time\.Millisecond\)` + sleep + fix));
 });
 
 test("blockingCalls takes the chain from goesm's explanation when there is one", async () => {

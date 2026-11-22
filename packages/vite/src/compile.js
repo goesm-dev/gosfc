@@ -114,9 +114,10 @@ export async function compileSfc(code, filename, opts) {
     );
   }
   // Only a block whose package has async functions can block, or a
-  // package that makes a vue.Computed with an async getter (blocking.js,
-  // loaded then: it parses goesm's output with Vite's parser).
-  if (/\basync\b/.test(res.modules.find((m) => m.importPath === importPath)?.code ?? "") || res.modules.some((m) => /\.NewComputed\b/.test(m.code) && /\basync\b/.test(m.code))) {
+  // package that makes a vue.Computed, whose getter may be async there or
+  // in a package it imports (blocking.js, loaded then: it parses goesm's
+  // output with Vite's parser).
+  if (/\basync\b/.test(res.modules.find((m) => m.importPath === importPath)?.code ?? "") || res.modules.some((m) => /\.NewComputed\b/.test(m.code))) {
     const { blockingCalls } = await import("./blocking.js");
     const blocked = blockingCalls({ importPath, modules: res.modules, descriptor, bindings: (synth.bindings ?? []).map((b) => b.name) });
     if (blocked.length) throw blockingError(blocked, filename, code, tagOffset, opts.root);

@@ -122,12 +122,16 @@ function blockingComputeds(program, importPath) {
     const p = queue.shift();
     const m = program.byPath.get(p);
     if (!m) continue;
-    for (const target of importsOf(m)) {
+    const imports = importsOf(m);
+    for (const target of imports) {
       if (seen.has(target) || target === vuePackage || !target.split("/")[0].includes(".")) continue;
       seen.add(target);
       queue.push(target);
     }
-    if (!/\.NewComputed\b/.test(m.code) || !/\basync\b/.test(m.code)) continue;
+    // A getter that blocks is async in this module or is a function of a
+    // module it imports (vue.NewComputed(pkg.Read)).
+    if (!/\.NewComputed\b/.test(m.code)) continue;
+    if (!hasAsync(m) && !imports.some((t) => t !== vuePackage && hasAsync(program.byPath.get(t)))) continue;
     const mod = program.module(p);
     const vue = mod && [...mod.namespaces].find(([, target]) => target === vuePackage)?.[0];
     if (!vue) continue;
@@ -144,6 +148,11 @@ function blockingComputeds(program, importPath) {
     }
   }
   return out;
+}
+
+/** Whether the module m has async functions. @param {GoModuleOutput | undefined} m */
+function hasAsync(m) {
+  return /\basync\b/.test(m?.code ?? "");
 }
 
 /** The import paths of the modules m imports. @param {GoModuleOutput} m */
