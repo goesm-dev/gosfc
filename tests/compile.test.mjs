@@ -354,6 +354,71 @@ func Label() string { return slowdyn.Run() }
   }
 });
 
+test("a vue.Computed whose getter blocks is an error at the call of vue.NewComputed", async () => {
+  const source = `<template>
+  <p>{{ doubled }} {{ named }} {{ quick }} {{ total }}</p>
+</template>
+
+<script setup lang="go">
+import (
+	"time"
+
+	"example.com/fixture/src/slowcomputed"
+	"github.com/goesm-dev/gosfc/vue"
+)
+
+base := vue.NewRef(1)
+doubled := vue.NewComputed(func() int {
+	time.Sleep(time.Millisecond)
+	return base.Get() * 2
+})
+
+func Slowly() int {
+	time.Sleep(time.Millisecond)
+	return 5
+}
+
+named := vue.NewComputed(Slowly)
+quick := vue.NewComputed(func() int { return base.Get() + 1 })
+total := slowcomputed.Total
+</script>
+`;
+  const file = component("TmpBlockingComputed.vue", source);
+  const e = await compileError(file, source);
+  // A function literal and a function of the block, at the call; the
+  // Computeds of an imported package (a function, a method value), at the
+  // script with the call's position. The getter that does not block is not
+  // an error.
+  assert.deepEqual(
+    e.errors.map((x) => [x.line, x.column]),
+    [
+      [14, 12],
+      [24, 10],
+      [5, 1],
+      [5, 1],
+    ],
+  );
+  const sleep = String.raw`(?:\n {4}\S*sleep\.go:\d+: receives from a channel)?`;
+  const fix = String.raw`\n {2}A Computed's getter must return at once: run what blocks in a goroutine \(go func\(\) \{ \.\.\. \}\(\)\) and keep its result in a vue\.Ref\.$`;
+  const [literal, named, method, fn] = e.errors.map((x) => x.message);
+  assert.match(literal, new RegExp(String.raw`^the getter of this vue\.Computed blocks, and Vue computes a Computed when it is read, without waiting:\n {4}src/TmpBlockingComputed\.vue:15: time\.Sleep\(time\.Millisecond\)` + sleep + fix));
+  assert.match(named, new RegExp(String.raw`^the getter of this vue\.Computed blocks, .*:\n {4}src/TmpBlockingComputed\.vue:20: time\.Sleep\(time\.Millisecond\)` + sleep + fix));
+  assert.match(method, new RegExp(String.raw`^the getter of the vue\.Computed made at src/slowcomputed/slowcomputed\.go:27 blocks, .*:\n {4}src/slowcomputed/slowcomputed\.go:22: time\.Sleep\(time\.Millisecond\)` + sleep + fix));
+  assert.match(fn, new RegExp(String.raw`^the getter of the vue\.Computed made at src/slowcomputed/slowcomputed\.go:17 blocks, .*:\n {4}src/slowcomputed/slowcomputed\.go:12: time\.Sleep\(time\.Millisecond\)` + sleep + fix));
+
+  // A block that only reads a Computed of the package, whose own Go has no
+  // function that blocks.
+  const reader = `<template>\n  <p>{{ total }}</p>\n</template>\n\n<script setup lang="go">\nimport "example.com/fixture/src/slowcomputed"\n\ntotal := slowcomputed.Total\n</script>\n`;
+  const r = await compileError(component("TmpComputedReader.vue", reader), reader);
+  assert.deepEqual(
+    r.errors.map((x) => [x.line, x.column, /made at src\/slowcomputed\/slowcomputed\.go:(\d+)/.exec(x.message)?.[1]]),
+    [
+      [5, 1, "27"],
+      [5, 1, "17"],
+    ],
+  );
+});
+
 test("blockingCalls takes the chain from goesm's explanation when there is one", async () => {
   const { blockingCalls } = await import("../packages/vite/src/blocking.js");
   const { parse } = await import("vue/compiler-sfc");

@@ -113,9 +113,10 @@ export async function compileSfc(code, filename, opts) {
       opts.root,
     );
   }
-  // Only a block whose package has async functions can block (blocking.js,
+  // Only a block whose package has async functions can block, or a
+  // package that makes a vue.Computed with an async getter (blocking.js,
   // loaded then: it parses goesm's output with Vite's parser).
-  if (/\basync\b/.test(res.modules.find((m) => m.importPath === importPath)?.code ?? "")) {
+  if (/\basync\b/.test(res.modules.find((m) => m.importPath === importPath)?.code ?? "") || res.modules.some((m) => /\.NewComputed\b/.test(m.code) && /\basync\b/.test(m.code))) {
     const { blockingCalls } = await import("./blocking.js");
     const blocked = blockingCalls({ importPath, modules: res.modules, descriptor, bindings: (synth.bindings ?? []).map((b) => b.name) });
     if (blocked.length) throw blockingError(blocked, filename, code, tagOffset, opts.root);
@@ -235,9 +236,9 @@ function patternNames(p) {
 
 /**
  * The error of the places of a Go block that block where a Vue component
- * cannot wait (blocking.js): at the call that blocks in the setup, or at
- * the template's call of a Go function that blocks, with the chain of calls
- * that blocks.
+ * cannot wait (blocking.js): at the call that blocks in the setup, at the
+ * template's call of a Go function that blocks, or at the call of
+ * vue.NewComputed whose getter blocks, with the chain of calls that blocks.
  * @param {ReturnType<typeof import("./blocking.js").blockingCalls>} blocked
  * @param {string} filename
  * @param {string} code
@@ -253,6 +254,15 @@ function blockingError(blocked, filename, code, tagOffset, root) {
     steps.map((s) => `\n    ${rel(s.file)}:${s.line}: ${[s.text, s.what && (s.text ? `(${s.what})` : s.what)].filter(Boolean).join(" ")}`).join("");
   return new GosfcError(
     blocked.map((b) => {
+      if (b.computed) {
+        const c = b.computed;
+        const here = c.file === filename;
+        const message =
+          `the getter of ${here ? "this vue.Computed" : `the vue.Computed made at ${rel(c.file)}:${c.line}`} blocks, and Vue computes a Computed when it is read, without waiting:${chain(b.chain)}\n` +
+          `  A Computed's getter must return at once: run what blocks in a goroutine (go func() { ... }()) and keep its result in a vue.Ref.`;
+        const at = here ? c : lineCol(code, tagOffset);
+        return withFrame({ file: filename, line: at.line, column: at.column, message }, code);
+      }
       if (b.call) {
         const message =
           `${b.call} blocks, and the template calls it while it renders, which cannot wait for it:${chain(b.chain)}\n` +
