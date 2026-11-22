@@ -11,8 +11,9 @@
 // function it calls) is therefore shown with every handle in it replaced by
 // a view: a plain object of the handle's fields as the ABI converts a struct
 // (named by their js or json tags, values converted), whose non-enumerable
-// methods call the handle's. A view passed back to a Go function (an event
-// handler's argument) is the handle again, so Go receives its own object.
+// methods call the handle's. A view passed back to Go (an event handler's
+// argument, a prop of a child component written in Go), also in an array or
+// a plain object, is the handle again, so Go receives its own object.
 // The fields of a view are read when the view is made, a snapshot like any
 // other binding value; a field holding another handle is a view made when it
 // is read, so cyclic structures cost nothing until they are read. A method
@@ -43,9 +44,41 @@ export function toTemplate(x, changed) {
   };
 }
 
-/** The handle of a view, or x itself. */
+/**
+ * x with each view in it replaced by its handle, so that Go receives its own
+ * objects: a view itself, and the views in arrays and plain objects (the
+ * props of a component, an argument such as a slice of pointers), which are
+ * copied where they hold one. x itself when it holds no view.
+ * @param {unknown} x
+ */
 export function unview(x) {
-  return x !== null && typeof x === "object" && x[VIEW] ? x[VIEW] : x;
+  return x !== null && typeof x === "object" ? unviewIn(x, new Map()) : x;
+}
+
+/**
+ * @param {object} x
+ * @param {Map<object, object>} done the arrays and plain objects walked so
+ *   far, and what they became (a cycle ends at an object being walked)
+ */
+function unviewIn(x, done) {
+  const h = x[VIEW];
+  if (h) return h;
+  if (!Array.isArray(x)) {
+    const proto = Object.getPrototypeOf(x);
+    if (proto !== Object.prototype && proto !== null) return x;
+  }
+  const seen = done.get(x);
+  if (seen) return seen;
+  done.set(x, x);
+  let out = null;
+  for (const k of Object.keys(x)) {
+    const v = x[k];
+    if (v === null || typeof v !== "object") continue;
+    const u = unviewIn(v, done);
+    if (u !== v) (out ??= Array.isArray(x) ? x.slice() : { ...x })[k] = u;
+  }
+  if (out) done.set(x, out);
+  return out ?? x;
 }
 
 /** The struct type of a Go object, or null for any other value. */

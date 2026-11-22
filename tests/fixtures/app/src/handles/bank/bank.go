@@ -19,3 +19,8 @@ func New(owner string, balance int, parent *Account) *Account {
 func (a *Account) Deposit(n int) { a.Balance += n }
 
 func (a *Account) Label() string { return a.Owner + ":" + strconv.Itoa(a.Balance) }
+
+// Pair holds an account in a field, inside a struct that is not a handle.
+type Pair struct {
+	Left *Account `json:"left"`
+}
