@@ -100,8 +100,9 @@ export function useGo(setup, _version, props, defaults, declared) {
     const inst = getCurrentInstance();
     if (inst) inst.gosfcProps = propsVersion;
     // The fields arrive as the declared props; a field also takes an
-    // attribute spelled as its Go name (Size="3").
-    lookup = setup(readProps(zero, attrs, defaults, declared));
+    // attribute spelled as its Go name (Size="3"). A Go object the parent's
+    // template passes (a view of a handle) is the Go object again.
+    lookup = setup(unview(readProps(zero, attrs, defaults, declared)));
     const setProps = lookup("gosfc:props");
     // Reading the fields' values is enough to see a prop added, removed or
     // replaced: any read of attrs depends on all of them. Other attributes
@@ -113,7 +114,7 @@ export function useGo(setup, _version, props, defaults, declared) {
     watch(values, (now) => {
       if (now.length === last.length && now.every((v, i) => Object.is(v, last[i]))) return;
       last = now;
-      setProps(readProps(zero, attrs, defaults, declared));
+      setProps(unview(readProps(zero, attrs, defaults, declared)));
       triggerRef(propsVersion);
       changed();
     });

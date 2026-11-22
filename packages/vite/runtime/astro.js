@@ -10,7 +10,7 @@
 // its result and that is all.
 
 import { readProps } from "gosfc:convert.js";
-import { toTemplate } from "gosfc:handles.js";
+import { toTemplate, unview } from "gosfc:handles.js";
 
 /**
  * @param {(props?: any) => any} setup
@@ -22,6 +22,8 @@ import { toTemplate } from "gosfc:handles.js";
  * @returns {Promise<(name: string) => any>}
  */
 export async function runGo(setup, props, astroProps, defaults, astro) {
-  const lookup = await (props ? setup(readProps(props(), astroProps ?? {}, defaults), astro) : setup(astro));
+  // A Go object a Go frontmatter passes (a view of a handle) is the Go
+  // object again.
+  const lookup = await (props ? setup(unview(readProps(props(), astroProps ?? {}, defaults)), astro) : setup(astro));
   return (name) => toTemplate(lookup(name));
 }
