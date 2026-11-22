@@ -189,6 +189,39 @@ test("the Go of a Go module is one program: go: imports share a package and its 
   assert.equal(built.calls(), 2);
 });
 
+test("dev server: a vue.Computed whose getter blocks, passed on as a function value, panics when it is read", async (t) => {
+  // The getter reaches vue.NewComputed through a parameter, which the
+  // compile-time check of Computeds cannot follow.
+  const file = src("TmpComputedValue.vue");
+  writeFileSync(file, `<template><p>{{ quick }} {{ slow }}</p></template>
+
+<script setup lang="go">
+import (
+	"time"
+
+	"github.com/goesm-dev/gosfc/vue"
+)
+
+base := vue.NewRef(1)
+
+func derived(f func() int) *vue.Computed[int] { return vue.NewComputed(f) }
+
+quick := derived(func() int { return base.Get() + 1 })
+slow := derived(func() int {
+	time.Sleep(time.Millisecond)
+	return base.Get() * 2
+})
+</script>
+`);
+  t.after(() => rmSync(file, { force: true }));
+  const server = await createServer({ root, configFile: false, logLevel: "silent", plugins: plugins(), appType: "custom", server: { middlewareMode: true, hmr: false } });
+  t.after(() => server.close());
+  const mod = await server.ssrLoadModule("/src/TmpComputedValue.vue");
+  const err = await renderToString(createSSRApp(mod.default)).then(() => null, (e) => e);
+  assert.ok(err, "expected a panic");
+  assert.match(String(err.message), /vue: the getter of a Computed blocks, and Vue computes a Computed when it is read, without waiting/);
+});
+
 test("dev server: a Go panic's stack trace points at the .vue file", async (t) => {
   const file = src("TmpPanic.vue");
   writeFileSync(file, `<template><div>{{ v }}</div></template>

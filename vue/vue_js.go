@@ -77,15 +77,24 @@ func readProps(p js.Value) {
 type Computed[T any] struct {
 	v T
 	c js.Value
+	// computing is set while f runs: f returned to Vue before it finished
+	// if it is still set when Vue has computed the value.
+	computing bool
 }
 
-// NewComputed returns a Computed whose value is f().
+// NewComputed returns a Computed whose value is f(). f must not block:
+// Vue computes a Computed when it is read, without waiting, and follows
+// only the Refs f reads before it returns. gosfc reports a getter that
+// blocks at compile time, and Get panics for one it could not see (a
+// function value passed on to NewComputed).
 func NewComputed[T any](f func() T) *Computed[T] {
 	c := &Computed[T]{}
 	props := propsDep()
 	n := 0
 	c.c = jsComputed(func() int {
 		readProps(props)
+		c.computing = true
+		defer func() { c.computing = false }()
 		c.v = f()
 		n++
 		return n
@@ -100,6 +109,9 @@ func (c *Computed[T]) GosfcRef() bool { return true }
 // Get returns the current value, recomputing it first if needed.
 func (c *Computed[T]) Get() T {
 	c.c.Get("value")
+	if c.computing {
+		panic("vue: the getter of a Computed blocks, and Vue computes a Computed when it is read, without waiting: run what blocks in a goroutine and keep its result in a vue.Ref")
+	}
 	return c.v
 }
 
