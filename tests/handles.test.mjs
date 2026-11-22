@@ -25,6 +25,17 @@ test("a pointer to a struct with methods: fields, methods and identity in the te
   );
 });
 
+test("a pointer passed to a child component as a prop is the same Go object there (SSR)", async (t) => {
+  const server = await createServer({ root, configFile: false, logLevel: "silent", plugins: [gosfc(), vue()], appType: "custom", server: { middlewareMode: true, hmr: false } });
+  t.after(() => server.close());
+  const { default: Owner } = await server.ssrLoadModule("/src/handles/Owner.vue");
+  // The prop itself, in a slice and in a struct: the parent's pointer.
+  assert.equal(
+    await renderToString(createSSRApp(Owner)),
+    '<div><p class="owner">親:10</p><div><p class="teller-same">yyy</p><p class="teller">親:10</p><button class="teller-deposit">+5</button></div><button class="owner-deposit">+1</button><button class="refresh">refresh</button></div>',
+  );
+});
+
 test("a pointer to a struct with methods: a method call and a handle passed back (browser)", { skip: !existsSync(chromium) && "no Chromium" }, async (t) => {
   const { chromium: pw } = await import("playwright-core");
   const server = await createServer({ root, configFile: false, logLevel: "silent", plugins: [gosfc(), vue()], server: { port: 0 } });
@@ -48,5 +59,19 @@ test("a pointer to a struct with methods: a method call and a handle passed back
   // The view passed to a Go function is the Go object itself.
   await page.click("button.give");
   await waitText(".given", "ゴー:15 (same)");
+
+  // A pointer prop: the child changes the parent's Go object, which the
+  // parent shows when it reads its bindings again.
+  assert.equal(await page.textContent(".teller-same"), "yyy");
+  await page.click("button.teller-deposit");
+  await waitText(".teller", "親:15");
+  assert.equal(await page.textContent(".owner"), "親:10");
+  await page.click("button.refresh");
+  await waitText(".owner", "親:15");
+  // The parent changes it: the child is given the prop again and shows it.
+  await page.click("button.owner-deposit");
+  await waitText(".owner", "親:16");
+  await waitText(".teller", "親:16");
+  assert.equal(await page.textContent(".teller-same"), "yyy");
   assert.deepEqual(errors, []);
 });
